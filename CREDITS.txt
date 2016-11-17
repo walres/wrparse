@@ -1,0 +1,3 @@
+N: James Waller
+E: james at walres dot com
+D: wrparse original author
