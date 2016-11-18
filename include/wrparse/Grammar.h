@@ -208,10 +208,13 @@ using RuleIndices = circ_fwd_list<size_t>;
  *
  * \see class \c Rule, class \c Component
  */
-class WRPARSE_API Production
+class WRPARSE_API Production :
+        std::vector<Rule>
 {
 public:
         using this_t = Production;
+        using base_t = std::vector<Rule>;
+        using const_iterator = base_t::const_iterator;
 
         enum
         {
@@ -255,13 +258,23 @@ public:
         this_t &operator+=(Rules &&other);
 
         const char *name() const    { return name_; }
-        const Rules &rules() const  { return rules_; }
         bool isTransparent() const  { return is_transparent_; }
         bool hideIfDelegate() const { return hide_if_delegate_; }
         bool keepRecursion() const  { return keep_recursion_; }
         bool matchesEmpty() const;
         bool isLL1() const;
         int indexOf(const Rule &rule) const;
+
+        bool empty() const           { return base_t::empty(); }
+        size_t size() const          { return base_t::size(); }
+        const_iterator begin() const { return base_t::begin(); }
+        const_iterator end() const   { return base_t::end(); }
+
+        const Rule &operator[](size_t pos) const
+                { return base_t::operator[](pos); }
+
+        const Rule &front() const { return base_t::front(); }
+        const Rule &back() const  { return base_t::back(); }
 
         using Terminals = std::map<TokenKind, RuleIndices>;
 
@@ -287,7 +300,7 @@ public:
         void gdb(const Lexer &lexer) const;
 
 private:
-        void initRules(Rules &rules, Rules::iterator pos);
+        void initRules(size_t from_pos = 0);
 
         enum class InitTerminalsStatus { OK, IS_LR, INDETERMINATE };
 
@@ -307,7 +320,6 @@ private:
 
 
         const char *      name_;
-        Rules             rules_;
         mutable Terminals initial_terminals_;
 
         union {

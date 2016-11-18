@@ -478,7 +478,7 @@ Parser::GLL::beginNonTerminal(
         size_t  count = 0;
 
         if (terminals.empty()) {
-                for (const Rule &rule: nonterminal.rules()) {
+                for (const Rule &rule: nonterminal) {
                         if (beginRule(rule, gss_head, input_pos,
                                       depth, false)) {
                                 ++count;
@@ -491,12 +491,12 @@ Parser::GLL::beginNonTerminal(
                         if (!nonterminal.matchesEmpty() &&
                                       (i->second.begin() == i->second.last())) {
                                 size_t ir = i->second.front();
-                                if (beginRule(nonterminal.rules()[ir], gss_head,
+                                if (beginRule(nonterminal[ir], gss_head,
                                               input_pos, depth, true)) {
                                         return true;
                                 }
                         } else for (size_t ir: i->second) {
-                                if (beginRule(nonterminal.rules()[ir], gss_head,
+                                if (beginRule(nonterminal[ir], gss_head,
                                               input_pos, depth, false)) {
                                         ++count;
                                 }
@@ -507,9 +507,8 @@ Parser::GLL::beginNonTerminal(
                         i = terminals.find(TOK_NULL);
                         if (i != terminals.end()) {
                                 for (size_t ir: i->second) {
-                                        if (beginRule(nonterminal.rules()[ir],
-                                                      gss_head, input_pos,
-                                                      depth, false)) {
+                                        if (beginRule(nonterminal[ir], gss_head,
+                                                     input_pos, depth, false)) {
                                                 ++count;
                                         }
                                 }
@@ -1193,7 +1192,7 @@ Parser::parse(
 {
         if (!lexer_) {
                 throw std::logic_error("Parser::parse(): no lexer set\n");
-        } else if (start.rules().empty()) {
+        } else if (start.empty()) {
                 return nullptr;
         }
 
@@ -1243,33 +1242,13 @@ WRPARSE_API
 ParseState::ParseState(
         Parser             &parser,
         const Production   &start,
-        const Production   &production,
-        Token              *input_pos,
-        SPPFNode::ConstPtr  parsed
-) :
-        parser_    (parser),
-        start_     (start),
-        production_(production),
-        rule_      (nullptr),
-        input_pos_ (input_pos),
-        parsed_    (parsed)
-{
-}
-
-//--------------------------------------
-
-WRPARSE_API
-ParseState::ParseState(
-        Parser             &parser,
-        const Production   &start,
         const Rule         &rule,
         Token              *input_pos,
         SPPFNode::ConstPtr  parsed
 ) :
         parser_    (parser),
         start_     (start),
-        production_(*rule.production()),
-        rule_      (&rule),
+        rule_      (rule),
         input_pos_ (input_pos),
         parsed_    (parsed)
 {
