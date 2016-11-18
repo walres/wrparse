@@ -85,7 +85,7 @@ wr::parse::Token &CalcLexer::lex(wr::parse::Token &out_token)
 
         char32_t c = read();
 
-        while ((c != '\n') && (c != eof) && wr::isuspace(c)) {
+        while ((c != U'\n') && (c != eof) && wr::isuspace(c)) {
                 next_token_flags_ |= wr::parse::TF_SPACE_BEFORE;
                 c = read();
         }
@@ -95,24 +95,22 @@ wr::parse::Token &CalcLexer::lex(wr::parse::Token &out_token)
 
         switch (c) {
         case U'\n':
-                out_token.setKind(TOK_NEWLINE).setSpelling(u8"\n");
+                out_token.setKind(TOK_NEWLINE).setSpelling("\n");
                 next_token_flags_ |= wr::parse::TF_STARTS_LINE;
                 break;
-
         case base_t::eof:  out_token.setKind(TOK_EOF); break;
-        case U'+': out_token.setKind(TOK_PLUS).setSpelling(u8"+"); break;
-        case U'-': out_token.setKind(TOK_MINUS).setSpelling(u8"-"); break;
-        case U'*': out_token.setKind(TOK_MULTIPLY).setSpelling(u8"*"); break;
+        case U'+': out_token.setKind(TOK_PLUS).setSpelling("+"); break;
+        case U'-': out_token.setKind(TOK_MINUS).setSpelling("-"); break;
+        case U'*': out_token.setKind(TOK_MULTIPLY).setSpelling("*"); break;
         case U'\u00d7':  // Unicode multiply symbol
                    out_token.setKind(TOK_MULTIPLY).setSpelling(u8"\u00d7");
                    break;
-        case U'/': out_token.setKind(TOK_DIVIDE).setSpelling(u8"/"); break;
+        case U'/': out_token.setKind(TOK_DIVIDE).setSpelling("/"); break;
         case U'\u00f7':  // Unicode division symbol
                    out_token.setKind(TOK_DIVIDE).setSpelling(u8"\u00f7"); break;
-        case U'(': out_token.setKind(TOK_LPAREN).setSpelling(u8"("); break;
-        case U')': out_token.setKind(TOK_RPAREN).setSpelling(u8")"); break;
+        case U'(': out_token.setKind(TOK_LPAREN).setSpelling("("); break;
+        case U')': out_token.setKind(TOK_RPAREN).setSpelling(")"); break;
         case U'.': lexNumber(out_token); break;
-
         default:
                 if (wr::isudigit(c)) {
                         lexNumber(out_token);
@@ -135,7 +133,7 @@ void CalcLexer::lexNumber(wr::parse::Token &out_token)
         if (lastRead() != U'.') {
                 lexDigits(spelling);
                 if (peek() == U'.') {  // consume upcoming decimal point
-                        read();
+                        wr::utf8_append(spelling, read());
                 }
         } else if (!wr::isudigit(peek())) {
                 // syntax error - must be at least one digit either side of '.'
@@ -145,24 +143,23 @@ void CalcLexer::lexNumber(wr::parse::Token &out_token)
 
         // read fractional part if it exists
         if (lastRead() == U'.') {
-                if (lexDigits(spelling) == 0) {
-                        wr::utf8_append(spelling, U'0');
-                }
+                lexDigits(spelling);
         }
 
         // read exponent if it exists and is complete
-        if (wr::toulower(lastRead()) == U'e') {
+        if (wr::toulower(peek()) == U'e') {
+                read();
                 char32_t c = peek();
                 unsigned count = 1;
                 switch (c) {
-                case '+': case '-':
-                        wr::utf8_append(spelling, read());
+                case U'+': case U'-':
+                        read();
                         ++count;
                         c = peek();
                         // fall through
                 default:
                         if (wr::isudigit(c)) {
-                                wr::utf8_append(spelling, 'e');
+                                wr::utf8_append(spelling, U'e');
                                 if (count > 1) {  // append sign
                                         wr::utf8_append(spelling, lastRead());
                                 }
@@ -300,7 +297,7 @@ CalcParser::CalcParser(CalcLexer &lexer) :
         });
 
         multiply_expr.addPostParseAction([](wr::parse::ParseState &state) {
-                if (state.rule()->mustHide()) {  // delegated to unary_expr
+                if (state.rule().index() == 0) {  // is unary_expr
                         return true;
                 }
 
@@ -325,7 +322,7 @@ CalcParser::CalcParser(CalcLexer &lexer) :
         });
 
         unary_expr.addPostParseAction([](wr::parse::ParseState &state) {
-                if (!state.rule()->mustHide()) {
+                if (state.rule().index() != 0) {  // is not primary-expr
                         auto parsed = state.parsedNode();
                         auto walker = wr::parse::nonTerminals(parsed);
                         if (!++walker) {  // skip sign
@@ -336,14 +333,14 @@ CalcParser::CalcParser(CalcLexer &lexer) :
                                 value = -value;
                         }
                         parsed->setAuxData(new Result(value));
-                } // else delegated to primary-expr
+                }
                 return true;
         });
 
         primary_expr.addPostParseAction([](wr::parse::ParseState &state) {
                 wr::parse::SPPFNode::ConstPtr parsed = state.parsedNode();
 
-                if (state.rule()->index() == 0) {
+                if (parsed->is(TOK_NUMBER)) {
                         parsed->setAuxData(new Result(wr::to_float<double>(
                                             parsed->firstToken()->spelling())));
                 } else {  // parenthesised expression
@@ -375,14 +372,14 @@ int main()
                 wr::parse::SPPFNode::Ptr result = parser.parse(calc_input);
 
                 if (!result) {
-                        wr::uerr << "parse failed\n";
+                        wr::uerr << "parse failed" << std::endl;
                         status = EXIT_FAILURE;
                         parser.reset();  // clear any remaining tokens
                 } else {
                         auto expr = result->find(parser.arithmetic_expr);
                         if (expr) {
                                 wr::uout << CalcParser::Result::
-                                                getFrom(*expr)->value << '\n';
+                                             getFrom(*expr)->value << std::endl;
                         }
                 }
 
