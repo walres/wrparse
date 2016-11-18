@@ -1,6 +1,7 @@
 #include <string>
 
 #include <wrutil/ctype.h>
+#include <wrutil/numeric_cast.h>
 #include <wrutil/uiostream.h>
 
 #include <wrparse/SPPF.h>
@@ -44,6 +45,8 @@ enum : wr::parse::TokenKind
 class CalcLexer : public wr::parse::Lexer
 {
 public:
+        using base_t = wr::parse::Lexer;
+
         CalcLexer(std::istream &input);
 
         // core Lexer interface
@@ -67,7 +70,7 @@ private:
 
 
 CalcLexer::CalcLexer(std::istream &input) :
-        Lexer            (input),
+        base_t           (input),
         next_token_flags_(wr::parse::TF_STARTS_LINE)
 {
 }
@@ -77,8 +80,8 @@ wr::parse::Token &CalcLexer::lex(wr::parse::Token &out_token)
 {
         out_token.reset();  /* resets token's type to wr::parse::TOK_NULL,
                                offset and length zero and empty spelling */
-
-        out_token.setOffset(offset());  // initialise token's offset
+        out_token.setOffset(
+                wr::numeric_cast<wr::parse::Token::Offset>(offset()));
 
         char32_t c = read();
 
@@ -96,15 +99,15 @@ wr::parse::Token &CalcLexer::lex(wr::parse::Token &out_token)
                 next_token_flags_ |= wr::parse::TF_STARTS_LINE;
                 break;
 
-        case eof:  out_token.setKind(TOK_EOF); break;
+        case base_t::eof:  out_token.setKind(TOK_EOF); break;
         case U'+': out_token.setKind(TOK_PLUS).setSpelling(u8"+"); break;
         case U'-': out_token.setKind(TOK_MINUS).setSpelling(u8"-"); break;
         case U'*': out_token.setKind(TOK_MULTIPLY).setSpelling(u8"*"); break;
-        case U'\u00d7':
+        case U'\u00d7':  // Unicode multiply symbol
                    out_token.setKind(TOK_MULTIPLY).setSpelling(u8"\u00d7");
                    break;
         case U'/': out_token.setKind(TOK_DIVIDE).setSpelling(u8"/"); break;
-        case U'\u00f7':
+        case U'\u00f7':  // Unicode division symbol
                    out_token.setKind(TOK_DIVIDE).setSpelling(u8"\u00f7"); break;
         case U'(': out_token.setKind(TOK_LPAREN).setSpelling(u8"("); break;
         case U')': out_token.setKind(TOK_RPAREN).setSpelling(u8")"); break;

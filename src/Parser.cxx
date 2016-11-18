@@ -69,7 +69,7 @@ bool operator!=(GrammarAddress addr, Rule::const_iterator i)
 class Parser::GSS
 {
 public:
-        class Edge;
+        struct Edge;
 
         class Node
         {

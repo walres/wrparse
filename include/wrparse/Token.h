@@ -106,7 +106,7 @@ enum : TokenFlags
  * tokens although applications are not expected to need to do the latter in
  * most cases.
  */
-class WRPARSE_API alignas(4) Token
+class WRPARSE_API Token
 {
 public:
         using Offset = uint32_t;  ///< token byte offset
@@ -301,6 +301,8 @@ private:
         Offset      offset_;
         TokenKind   kind_;
 };
+
+static_assert(alignof(Token) >= 4, "Token requires alignment of 4 or more");
 
 
 } // namespace parse

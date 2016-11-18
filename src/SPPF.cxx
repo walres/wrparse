@@ -27,6 +27,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <wrutil/CityHash.h>
+#include <wrutil/numeric_cast.h>
 #include <wrutil/uiostream.h>
 
 #include <wrparse/SPPF.h>
@@ -190,7 +191,7 @@ SPPFNode::nonTerminal() const
                 return nonterminal_;
         case INTERMEDIATE: case PACKED:
                 return rule()->production();
-        case TERMINAL:
+        default: case TERMINAL:
                 return nullptr;
         }
 }
@@ -299,7 +300,7 @@ SPPFNode::endOffset() const
         Token::Offset offset = last_token_->offset();
 
         if (!empty()) {
-                offset += last_token_->bytes();
+                offset += numeric_cast<Token::Offset>(last_token_->bytes());
         }
 
         if (!children_.empty() && lastChild()->empty()) {

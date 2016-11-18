@@ -25,6 +25,7 @@
 #ifndef WRPARSE_GRAMMAR_H
 #define WRPARSE_GRAMMAR_H
 
+#include <algorithm>
 #include <iosfwd>
 #include <map>
 #include <set>
@@ -48,7 +49,7 @@ class Production;  // see below
 /**
  * \brief Grammar rule component data type
  */
-class WRPARSE_API alignas(4) Component
+class WRPARSE_API Component
 {
 public:
         using this_t = Component;
@@ -123,11 +124,14 @@ private:
                    is_optional_ : 1;
 };
 
+static_assert(alignof(Component) >= 4,
+              "Component requires alignment of 4 or more");
+
 //--------------------------------------
 /**
  * \brief Grammar rule data type
  */
-class WRPARSE_API alignas(4) Rule :
+class WRPARSE_API Rule :
         std::vector<Component>
 {
         using base_t = std::vector<Component>;
@@ -189,6 +193,7 @@ private:
         bool              enabled_ : 1;
 };
 
+static_assert(alignof(Rule) >= 4, "Rule requires alignment of 4 or more");
 
 using Rules = std::vector<Rule>;
 using RuleIndices = circ_fwd_list<size_t>;
@@ -203,7 +208,7 @@ using RuleIndices = circ_fwd_list<size_t>;
  *
  * \see class \c Rule, class \c Component
  */
-class WRPARSE_API alignas(4) Production
+class WRPARSE_API Production
 {
 public:
         using this_t = Production;
@@ -320,6 +325,9 @@ private:
         mutable ActionList pre_parse_actions_,
                            post_parse_actions_;
 };
+
+static_assert(alignof(Production) >= 4,
+              "Production requires alignment of 4 or more");
 
 //--------------------------------------
 
