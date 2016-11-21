@@ -51,7 +51,6 @@ public:
 
         // core Lexer interface
         virtual wr::parse::Token &lex(wr::parse::Token &out_token);
-        virtual const char *tokenKindName(wr::parse::TokenKind kind) const;
 
 private:
         void lexNumber(wr::parse::Token &out_token);
@@ -186,24 +185,6 @@ unsigned CalcLexer::lexDigits(std::string &spelling)
         }
 
         return count;
-}
-
-
-const char *CalcLexer::tokenKindName(wr::parse::TokenKind kind) const
-{
-        switch (kind) {
-        case TOK_NULL:     return "NULL";
-        case TOK_EOF:      return "EOF";
-        case TOK_PLUS:     return "PLUS";
-        case TOK_MINUS:    return "MINUS";
-        case TOK_MULTIPLY: return "MULTIPLY";
-        case TOK_DIVIDE:   return "DIVIDE";
-        case TOK_LPAREN:   return "LPAREN";
-        case TOK_RPAREN:   return "RPAREN";
-        case TOK_NUMBER:   return "NUMBER";
-        case TOK_NEWLINE:  return "NEWLINE";
-        default:           return "UNKNOWN";
-        }
 }
 
 //--------------------------------------

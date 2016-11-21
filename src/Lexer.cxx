@@ -37,10 +37,27 @@ namespace parse {
 
 WRPARSE_API
 Lexer::Lexer(
+        nullptr_t
+) :
+        input_         (nullptr),
+        line_          (0),
+        column_        (0),
+        offset_        (0),
+        hist_begin_    (0),
+        hist_pos_      (-1),
+        hist_end_      (-1),
+        first_free_buf_(storage_.end())
+{
+}
+
+//--------------------------------------
+
+WRPARSE_API
+Lexer::Lexer(
         int line,
         int column
 ) :
-        Lexer(uin)
+        this_t(uin, line, column)
 {
 }
 
@@ -52,10 +69,9 @@ Lexer::Lexer(
         int           line,
         int           column
 ) :
-        input_         (input.rdbuf()),
-        first_free_buf_(storage_.end())
+        this_t()
 {
-        reset(line, column);
+        reset(input, line, column);
 }
 
 //--------------------------------------
@@ -72,6 +88,20 @@ Lexer::Lexer(
 //--------------------------------------
 
 WRPARSE_API Lexer::~Lexer() = default;
+
+//--------------------------------------
+
+WRPARSE_API const char *
+Lexer::tokenKindName(
+        TokenKind kind
+) const
+{
+        switch (kind) {
+        case TOK_NULL: return "NULL";
+        case TOK_EOF:  return "EOF";
+        default:       return "?";
+        }
+}
 
 //--------------------------------------
 

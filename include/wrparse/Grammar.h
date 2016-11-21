@@ -206,7 +206,7 @@ using RuleIndices = circ_fwd_list<size_t>;
  * set of one or more rules, specifiable as nonterminal rule components and
  * are used as the starting point for a parsing operation.
  *
- * \see class \c Rule, class \c Component
+ * \see class `Rule`, class `Component`
  */
 class WRPARSE_API Production :
         std::vector<Rule>
