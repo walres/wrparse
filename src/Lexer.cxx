@@ -293,10 +293,9 @@ Lexer::operator=(
 
 //--------------------------------------
 
-WRPARSE_API void *
-Lexer::store(
-        const void *data,
-        size_t      size
+WRPARSE_API char *
+Lexer::allocate(
+        size_t size
 )
 {
         // want to keep this implementation detail out of the header file
@@ -339,7 +338,6 @@ Lexer::store(
         assert(size <= sp_buf.room);
         char *stored = &sp_buf.data[STORAGE_BUF_SIZE] - sp_buf.room;
         sp_buf.room -= size;
-        memcpy(stored, data, size);
 
         if (!own_buf) {
                 assert(ibuf != storage_.end());
@@ -371,6 +369,19 @@ Lexer::store(
                 }
         }
 
+        return stored;
+}
+
+//--------------------------------------
+
+WRPARSE_API char *
+Lexer::store(
+        const void *data,
+        size_t      size
+)
+{
+        char *stored = allocate(size);
+        memcpy(stored, data, size);
         return stored;
 }
 

@@ -333,6 +333,18 @@ protected:
          */
         ///@{
         /**
+         * \brief Allocate zeroed memory block of `size` bytes
+         *
+         * The memory is freed by either a future call to `clearStorage()`
+         * or upon expiry of the `Lexer` object, whichever happens first.
+         *
+         * \param [in] size  size of memory block in bytes
+         *
+         * \return address of the allocated memory block
+         */
+        char *allocate(size_t size);
+
+        /**
          * \brief Allocate and return copy of memory block bounded by
          *      <i>(`data`, `size`)</i>
          *
@@ -344,7 +356,7 @@ protected:
          *
          * \return address of the copied memory block
          */
-        void *store(const void *data, size_t size);
+        char *store(const void *data, size_t size);
 
         /**
          * \brief Allocate and return copy of spelling `s`
