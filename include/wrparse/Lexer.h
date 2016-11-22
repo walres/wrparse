@@ -341,6 +341,7 @@ protected:
          * \param [in] size  size of memory block in bytes
          *
          * \return address of the allocated memory block
+         * \return `nullptr` if `size` is zero
          */
         char *allocate(size_t size);
 
@@ -355,6 +356,7 @@ protected:
          * \param [in] size  size of memory block in bytes
          *
          * \return address of the copied memory block
+         * \return `nullptr` if `size` is zero
          */
         char *store(const void *data, size_t size);
 
@@ -365,11 +367,9 @@ protected:
          * or upon expiry of the `Lexer` object, whichever happens first.
          *
          * \param [in] s  spelling to be copied
-         * \return copy of `s` stored by the lexer
+         * \return copy of `s` stored by the lexer or `s` if `s` is empty
          */
-        u8string_view store(u8string_view s)
-                { return { static_cast<const char *>
-                           (store(s.data(), s.bytes())), s.bytes() }; }
+        u8string_view store(u8string_view s);
         ///@}
 
 private:

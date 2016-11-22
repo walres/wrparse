@@ -69,7 +69,8 @@ Lexer::Lexer(
         int           line,
         int           column
 ) :
-        this_t()
+        this_t(nullptr)  /* ensure vtable is initialised so that
+                            reset() invokes the most-derived onReset() */
 {
         reset(input, line, column);
 }
@@ -383,6 +384,21 @@ Lexer::store(
         char *stored = allocate(size);
         memcpy(stored, data, size);
         return stored;
+}
+
+//--------------------------------------
+
+WRPARSE_API u8string_view
+Lexer::store(
+        u8string_view s
+)
+{
+        if (!s.empty()) {
+                char *copy = store(s.data(), s.bytes());
+                return { copy, s.bytes() };
+        } else {
+                return s;
+        }
 }
 
 //--------------------------------------
