@@ -1,17 +1,15 @@
-#include <string>
-
-#include <wrutil/ctype.h>
-#include <wrutil/numeric_cast.h>
-#include <wrutil/uiostream.h>
-
-#include <wrparse/SPPF.h>
-#include <wrparse/SPPFOutput.h>
-#include <wrparse/Lexer.h>
+#include <algorithm>  // std::copy_n()
+#include <cstdlib>    // atof(), strtoull()
+#include <limits>     // quiet_NaN()
+#include <wrutil/uiostream.h>  // wr::uin
+#include <wrparse/PatternLexer.h>
 #include <wrparse/Grammar.h>
 #include <wrparse/Parser.h>
+#include <wrparse/SPPF.h>
+#include <wrparse/SPPFOutput.h>
 
 /**
- * \brief define token types
+ * \brief The token types
  *
  * These token type constants are used both by the lexer
  * and by the parser as terminal symbols.
@@ -30,170 +28,89 @@ enum : wr::parse::TokenKind
         TOK_DIVIDE,
         TOK_LPAREN,
         TOK_RPAREN,
-        TOK_NUMBER,
         TOK_NEWLINE,
-        TOK_UNKNOWN
+        TOK_NUMBER
 };
 
 //--------------------------------------
 /**
- * \brief calculator lexical analyser
+ * \brief The lexical analyser
  *
- * CalcLexer generates tokens from an incoming text stream for processing
- * by the parser.
+ * `CalcLexer` generates tokens from an incoming text stream for processing
+ * by the parser object, `CalcParser`.
  */
-class CalcLexer : public wr::parse::Lexer
+class CalcLexer : public wr::parse::PatternLexer
 {
 public:
-        using base_t = wr::parse::Lexer;
-
-        CalcLexer(std::istream &input);
-
-        // core Lexer interface
-        virtual wr::parse::Token &lex(wr::parse::Token &out_token);
-
-private:
-        void lexNumber(wr::parse::Token &out_token);
-                                        // helper function for lex()
-        unsigned lexDigits(std::string &spelling);
-                                        // helper function for lexNumber()
-
-        void error(const wr::u8string_view &message)
+        CalcLexer(std::istream &input) : PatternLexer(input, {
+                { R"(\+)",
+                        [](wr::parse::Token &t) {
+                                t.setKind(TOK_PLUS).setSpelling("+");
+                        }},
+                { "-", [](wr::parse::Token &t) { t.setKind(TOK_MINUS); }},
+                { R"(\*)",
+                        [](wr::parse::Token &t) {
+                                t.setKind(TOK_MULTIPLY).setSpelling("*");
+                        }},
+                { u8"\u00d7",  // matches Unicode multiply sign
+                        [](wr::parse::Token &t) { t.setKind(TOK_MULTIPLY); }},
+                {{ "/", u8"\u00f7" },  // match '/' or Unicode division sign
+                        [](wr::parse::Token &t) { t.setKind(TOK_DIVIDE); }},
+                { R"(\()",
+                        [](wr::parse::Token &t) {
+                                t.setKind(TOK_LPAREN).setSpelling("(");
+                        }},
+                { R"(\))",
+                        [](wr::parse::Token &t) {
+                                t.setKind(TOK_RPAREN).setSpelling(")");
+                        }},
+                { R"(\R)",  // any Unicode newline sequence
+                        [this](wr::parse::Token &t) {
+                                t.setKind(TOK_NEWLINE)
+                                 .setSpelling(storeMatched());
+                        }},                        
+                { R"([ \t\f\v\p{Zs}]+)" },
+                        // ignore non-newline whitespace
+                { { R"(\d+(\.\d*)?([Ee][+-]?\d+)?)",  // decimal number
+                    R"(\.\d+([Ee][+-]?\d+)?)",
+                    "0b[10]+",                        // binary integer
+                    "0x[[:xdigit:]]+" },              // hexadecimal integer
+                        [this](wr::parse::Token &t) {
+                                t.setKind(TOK_NUMBER)
+                                 .setSpelling(storeMatched());
+                        }}
+        })
         {
-                wr::uerr << "error at line " << line() << " column " << column()
-                         << ": " << message << '\n';
         }
 
-        wr::parse::TokenFlags next_token_flags_;
-};
+        static double valueOf(const wr::parse::Token *t)
+        {
+                if (!t || !t->is(TOK_NUMBER)) {
+                        return std::numeric_limits<double>::quiet_NaN();
+                }
 
+                wr::u8string_view spelling(t->spelling());
+                int               base = 10;
 
-CalcLexer::CalcLexer(std::istream &input) :
-        base_t           (input),
-        next_token_flags_(wr::parse::TF_STARTS_LINE)
-{
-}
-
-
-wr::parse::Token &CalcLexer::lex(wr::parse::Token &out_token)
-{
-        out_token.reset();  /* resets token's type to wr::parse::TOK_NULL,
-                               offset and length zero and empty spelling */
-        out_token.setOffset(
-                wr::numeric_cast<wr::parse::Token::Offset>(offset()));
-
-        char32_t c = read();
-
-        while ((c != U'\n') && (c != eof) && wr::isuspace(c)) {
-                next_token_flags_ |= wr::parse::TF_SPACE_BEFORE;
-                c = read();
-        }
-
-        out_token.setFlags(next_token_flags_);
-        next_token_flags_ = 0;
-
-        switch (c) {
-        case U'\n':
-                out_token.setKind(TOK_NEWLINE).setSpelling("\n");
-                next_token_flags_ |= wr::parse::TF_STARTS_LINE;
-                break;
-        case base_t::eof:  out_token.setKind(TOK_EOF); break;
-        case U'+': out_token.setKind(TOK_PLUS).setSpelling("+"); break;
-        case U'-': out_token.setKind(TOK_MINUS).setSpelling("-"); break;
-        case U'*': out_token.setKind(TOK_MULTIPLY).setSpelling("*"); break;
-        case U'\u00d7':  // Unicode multiply symbol
-                   out_token.setKind(TOK_MULTIPLY).setSpelling(u8"\u00d7");
-                   break;
-        case U'/': out_token.setKind(TOK_DIVIDE).setSpelling("/"); break;
-        case U'\u00f7':  // Unicode division symbol
-                   out_token.setKind(TOK_DIVIDE).setSpelling(u8"\u00f7"); break;
-        case U'(': out_token.setKind(TOK_LPAREN).setSpelling("("); break;
-        case U')': out_token.setKind(TOK_RPAREN).setSpelling(")"); break;
-        case U'.': lexNumber(out_token); break;
-        default:
-                if (wr::isudigit(c)) {
-                        lexNumber(out_token);
+                if (spelling.has_prefix("0b")) {
+                        base = 2;
+                } else if (spelling.has_prefix("0x")) {
+                        base = 16;
                 } else {
-                        out_token.setKind(TOK_UNKNOWN).setSpelling("\0");
+                        return wr::to_float<double>(spelling);
                 }
-                break;
+
+                return wr::to_int<unsigned long long>(spelling, nullptr, base);
         }
-
-        return out_token;
-}
-
-
-void CalcLexer::lexNumber(wr::parse::Token &out_token)
-{
-        std::string spelling;
-        wr::utf8_append(spelling, lastRead());
-
-        // read integer part unless first character was decimal point
-        if (lastRead() != U'.') {
-                lexDigits(spelling);
-                if (peek() == U'.') {  // consume upcoming decimal point
-                        wr::utf8_append(spelling, read());
-                }
-        } else if (!wr::isudigit(peek())) {
-                // syntax error - must be at least one digit either side of '.'
-                error("expected number after '.'");
-                return;
-        }
-
-        // read fractional part if it exists
-        if (lastRead() == U'.') {
-                lexDigits(spelling);
-        }
-
-        // read exponent if it exists and is complete
-        if (wr::toulower(peek()) == U'e') {
-                read();
-                char32_t c = peek();
-                unsigned count = 1;
-                switch (c) {
-                case U'+': case U'-':
-                        read();
-                        ++count;
-                        c = peek();
-                        // fall through
-                default:
-                        if (wr::isudigit(c)) {
-                                wr::utf8_append(spelling, U'e');
-                                if (count > 1) {  // append sign
-                                        wr::utf8_append(spelling, lastRead());
-                                }
-                                lexDigits(spelling);
-                        } else {
-                                /* incomplete - no number after 'e' -
-                                   treat as separate from number */
-                                backtrack(count);
-                        }
-                        break;
-                }
-        }
-
-        out_token.setKind(TOK_NUMBER).setSpelling(store(spelling));
-}
-
-
-unsigned CalcLexer::lexDigits(std::string &spelling)
-{
-        unsigned count = 0;
-
-        for (; wr::isudigit(peek()); ++count) {
-                wr::utf8_append(spelling, read());
-        }
-
-        return count;
-}
+};
 
 //--------------------------------------
 /**
- * \brief the calculator parser
+ * \brief The parser
  *
- * Defines the productions, grammar and semantic actions for the language.
- * The wr::parse::Parser base class provides the 'glue' to the lexer and the
- * public API to initiate parsing.
+ * Defines the grammar and semantic actions for the language.
+ * The wr::parse::Parser base class provides the 'glue' to the lexer plus the
+ * public API to effect parsing.
  */
 class CalcParser : public wr::parse::Parser
 {
@@ -206,20 +123,17 @@ public:
                                     unary_op,
                                     arithmetic_expr,
                                     multiply_expr;
-
         /**
-         * \brief result data calculated for and attached to each SPPF node
+         * \brief result data calculated for and attached to SPPF nodes
          */
         struct Result : wr::parse::AuxData
         {
-                using this_t = Result;
-
                 double value;
 
                 Result(double v) : value(v) {}
 
-                static this_t *getFrom(const wr::parse::SPPFNode &node)
-                        { return static_cast<this_t *>(node.auxData().get()); }
+                static Result *getFrom(const wr::parse::SPPFNode &node)
+                        { return static_cast<Result *>(node.auxData().get()); }
         };
 };
 
@@ -305,11 +219,11 @@ CalcParser::CalcParser(CalcLexer &lexer) :
         unary_expr.addPostParseAction([](wr::parse::ParseState &state) {
                 if (state.rule().index() != 0) {  // is not primary-expr
                         auto parsed = state.parsedNode();
-                        auto walker = wr::parse::nonTerminals(parsed);
-                        if (!++walker) {  // skip sign
+                        auto i = wr::parse::nonTerminals(parsed);
+                        if (!++i) {  // skip sign
                                 return false;
                         }
-                        double value = Result::getFrom(*walker)->value;
+                        double value = Result::getFrom(*i)->value;
                         if (parsed->firstToken()->is(TOK_MINUS)) {
                                 value = -value;
                         }
@@ -322,14 +236,14 @@ CalcParser::CalcParser(CalcLexer &lexer) :
                 wr::parse::SPPFNode::ConstPtr parsed = state.parsedNode();
 
                 if (parsed->is(TOK_NUMBER)) {
-                        parsed->setAuxData(new Result(wr::to_float<double>(
-                                            parsed->firstToken()->spelling())));
+                        parsed->setAuxData(new Result(
+                                    CalcLexer::valueOf(parsed->firstToken())));
                 } else {  // parenthesised expression
-                        auto walker = wr::parse::nonTerminals(parsed);
-                        if (!walker) {
+                        auto i = wr::parse::nonTerminals(parsed);
+                        if (!i) {
                                 return false;
                         }
-                        parsed->setAuxData(Result::getFrom(*walker));
+                        parsed->setAuxData(Result::getFrom(*i));
                 }
                 return true;
         });
@@ -356,12 +270,10 @@ int main()
                         wr::uerr << "parse failed" << std::endl;
                         status = EXIT_FAILURE;
                         parser.reset();  // clear any remaining tokens
-                } else {
-                        auto expr = result->find(parser.arithmetic_expr);
-                        if (expr) {
-                                wr::uout << CalcParser::Result::
-                                             getFrom(*expr)->value << std::endl;
-                        }
+                } else if (result->is(parser.arithmetic_expr)) {
+                        auto &expr = *nonTerminals(result); // dig down 1 level
+                        wr::uout << CalcParser::Result::getFrom(expr)->value
+                                 << std::endl;
                 }
 
                 lexer.clearStorage();  // clear gathered token spellings

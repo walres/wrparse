@@ -70,6 +70,7 @@ set(WRPARSE_SOURCES
         src/Grammar.cxx
         src/Lexer.cxx
         src/Parser.cxx
+        src/PatternLexer.cxx
         src/SPPF.cxx
         src/Token.cxx
 )
@@ -79,6 +80,7 @@ set(WRPARSE_HEADERS
         include/wrparse/Grammar.h
         include/wrparse/Lexer.h
         include/wrparse/Parser.h
+        include/wrparse/PatternLexer.h
         include/wrparse/SPPF.h
         include/wrparse/SPPFOutput.h
         include/wrparse/Token.h
@@ -87,7 +89,7 @@ set(WRPARSE_HEADERS
 add_library(wrparse SHARED ${WRPARSE_SOURCES} ${WRPARSE_HEADERS})
 add_library(wrparse_static STATIC ${WRPARSE_SOURCES} ${WRPARSE_HEADERS})
 
-target_link_libraries(wrparse wrutil)
+target_link_libraries(wrparse wrutil pcre2-8)
 
 set_target_properties(wrparse PROPERTIES
         COMPILE_FLAGS "-Dwrutil_IMPORTS ${WR_SOFLAGS}"
