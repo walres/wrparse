@@ -69,8 +69,11 @@ public:
                                 t.setKind(TOK_NEWLINE)
                                  .setSpelling(storeMatched());
                         }},                        
-                { R"([ \t\f\v\p{Zs}]+)" },
-                        // ignore non-newline whitespace
+                { R"([\t\f\x0b\p{Zs}]+)" },
+                        /* ignore non-newline whitespace
+                           NB: '\x0b' used instead of '\v' above
+                           (in this context '\v' means "any vertical whitespace"
+                           not "vertical tab") */
                 { { R"(\d+(\.\d*)?([Ee][+-]?\d+)?)",  // decimal number
                     R"(\.\d+([Ee][+-]?\d+)?)",
                     "0b[10]+",                        // binary integer
@@ -223,11 +226,11 @@ CalcParser::CalcParser(CalcLexer &lexer) :
                         if (!++i) {  // skip sign
                                 return false;
                         }
-                        double value = Result::getFrom(*i)->value;
+                        double result = Result::getFrom(*i)->value;
                         if (parsed->firstToken()->is(TOK_MINUS)) {
-                                value = -value;
+                                result = -result;
                         }
-                        parsed->setAuxData(new Result(value));
+                        parsed->setAuxData(new Result(result));
                 }
                 return true;
         });
