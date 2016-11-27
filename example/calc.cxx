@@ -75,7 +75,7 @@ public:
                            (in this context '\v' means "any vertical whitespace"
                            not "vertical tab") */
                 { { R"(\d+(\.\d*)?([Ee][+-]?\d+)?)",  // decimal number
-                    R"(\.\d+([Ee][+-]?\d+)?)",
+                    R"(\.\d+([Ee][+-]?\d+)?)",        // ditto, starting with .
                     "0b[10]+",                        // binary integer
                     "0x[[:xdigit:]]+" },              // hexadecimal integer
                         [this](wr::parse::Token &t) {
@@ -86,6 +86,12 @@ public:
         {
         }
 
+        /**
+         * \brief get the numeric value of a `TOK_NUMBER` token
+         * \param [in] t  the input token
+         * \return numeric value expressed by `t`
+         * \return `NaN` if `t` is null or not of type `TOK_NUMBER`
+         */
         static double valueOf(const wr::parse::Token *t)
         {
                 if (!t || !t->is(TOK_NUMBER)) {
@@ -274,8 +280,8 @@ int main()
                         status = EXIT_FAILURE;
                         parser.reset();  // clear any remaining tokens
                 } else if (result->is(parser.arithmetic_expr)) {
-                        auto &expr = *nonTerminals(result); // dig down 1 level
-                        wr::uout << CalcParser::Result::getFrom(expr)->value
+                        auto expr = result->find(parser.arithmetic_expr);
+                        wr::uout << CalcParser::Result::getFrom(*expr)->value
                                  << std::endl;
                 }
 
