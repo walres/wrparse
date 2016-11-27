@@ -813,7 +813,9 @@ NonTerminalWalkerTemplate<NodeT>::operator++() -> this_t &
                         if (!base_t::walkLeft(finish_)) {
                                 break;
                         }
-                } else if (pos->isSymbol()) {
+                } else if (pos->isSymbol()
+                           && (pos->isTerminal()
+                               || !pos->nonTerminal()->isTransparent())) {
                         while (true) {
                                 if (!base_t::backtrack()) {
                                         return *this;
@@ -846,7 +848,8 @@ NonTerminalWalkerTemplate<NodeT>::operator++() -> this_t &
                 }
 
                 pos = node();
-        } while ((pos != finish_) && !pos->isNonTerminal());
+        } while ((pos != finish_) && (!pos->isNonTerminal()
+                                      || pos->nonTerminal()->isTransparent()));
 
         return *this;
 }
