@@ -30,6 +30,7 @@
 #include <pcre2.h>
 #include <wrutil/circ_fwd_list.h>
 #include <wrutil/Format.h>
+#include <wrutil/numeric_cast.h>
 #include <wrparse/PatternLexer.h>
 
 
@@ -65,6 +66,9 @@ struct PatternLexer::Body
                                                 (pcre2_code *) pattern_.re_,
                                                 nullptr)),
                         re_workspace_(pattern.re_workspace_size_),
+                        bytes_(0),
+                        lines_(0),
+                        columns_(0),
                         next_token_flags_(0),
                         matches_single_newline_(
                                         (pattern_.orig_str_ == R"(\R)")
@@ -134,8 +138,8 @@ PatternLexer::Body::Body(
                 }
 
                 for (Rule::Pattern &pattern: rule.patterns_) {
-                        auto     re = static_cast<pcre2_code *>(pattern.re_);
-                        uint32_t status = -1U;
+                        auto re     = static_cast<pcre2_code *>(pattern.re_);
+                        auto status = static_cast<uint32_t>(-1);
 
                         if (pcre2_pattern_info(re, PCRE2_INFO_FIRSTCODETYPE,
                                                &status) == 0 && (status == 1)) {
@@ -184,7 +188,7 @@ PatternLexer::Body::setMatchFirst(
         auto &page_no = first_table_[char_val >> 8];
 
         if (page_no == 0) {
-                page_no = pages_.size();
+                page_no = numeric_cast<uint16_t>(pages_.size());
                 pages_.emplace_back();
         }
 
@@ -240,7 +244,7 @@ PatternLexer::Body::readChar()
                 break;
         }
 
-        int bytes = last_read_bytes_ - 1;
+        auto bytes = last_read_bytes_ - 1;
 
         for (; (buf_pos_ < buffer_.size()) && (bytes > 0); --bytes) {
                 c = buffer_[buf_pos_++];

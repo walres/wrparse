@@ -109,7 +109,8 @@ public:
                         return wr::to_float<double>(spelling);
                 }
 
-                return wr::to_int<unsigned long long>(spelling, nullptr, base);
+                return static_cast<double>(wr::to_int<unsigned long long>(
+                                                      spelling, nullptr, base));
         }
 };
 

@@ -214,6 +214,15 @@ Component::gdb(
 //--------------------------------------
 
 WRPARSE_API
+Rule::Rule() :
+        production_(nullptr),
+        enabled_   (false)
+{
+}
+
+//--------------------------------------
+
+WRPARSE_API
 Rule::Rule(
         std::initializer_list<Component> init,
         bool                             enable
