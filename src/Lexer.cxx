@@ -37,10 +37,27 @@ namespace parse {
 
 WRPARSE_API
 Lexer::Lexer(
+        nullptr_t
+) :
+        input_         (nullptr),
+        line_          (0),
+        column_        (0),
+        offset_        (0),
+        hist_begin_    (0),
+        hist_pos_      (-1),
+        hist_end_      (-1),
+        first_free_buf_(storage_.end())
+{
+}
+
+//--------------------------------------
+
+WRPARSE_API
+Lexer::Lexer(
         int line,
         int column
 ) :
-        Lexer(uin)
+        this_t(uin, line, column)
 {
 }
 
@@ -52,10 +69,10 @@ Lexer::Lexer(
         int           line,
         int           column
 ) :
-        input_         (input.rdbuf()),
-        first_free_buf_(storage_.end())
+        this_t(nullptr)  /* ensure vtable is initialised so that
+                            reset() invokes the most-derived onReset() */
 {
-        reset(line, column);
+        reset(input, line, column);
 }
 
 //--------------------------------------
@@ -72,6 +89,20 @@ Lexer::Lexer(
 //--------------------------------------
 
 WRPARSE_API Lexer::~Lexer() = default;
+
+//--------------------------------------
+
+WRPARSE_API const char *
+Lexer::tokenKindName(
+        TokenKind kind
+) const
+{
+        switch (kind) {
+        case TOK_NULL: return "NULL";
+        case TOK_EOF:  return "EOF";
+        default:       return "?";
+        }
+}
 
 //--------------------------------------
 
@@ -263,10 +294,9 @@ Lexer::operator=(
 
 //--------------------------------------
 
-WRPARSE_API void *
-Lexer::store(
-        const void *data,
-        size_t      size
+WRPARSE_API char *
+Lexer::allocate(
+        size_t size
 )
 {
         // want to keep this implementation detail out of the header file
@@ -309,7 +339,6 @@ Lexer::store(
         assert(size <= sp_buf.room);
         char *stored = &sp_buf.data[STORAGE_BUF_SIZE] - sp_buf.room;
         sp_buf.room -= size;
-        memcpy(stored, data, size);
 
         if (!own_buf) {
                 assert(ibuf != storage_.end());
@@ -342,6 +371,34 @@ Lexer::store(
         }
 
         return stored;
+}
+
+//--------------------------------------
+
+WRPARSE_API char *
+Lexer::store(
+        const void *data,
+        size_t      size
+)
+{
+        char *stored = allocate(size);
+        memcpy(stored, data, size);
+        return stored;
+}
+
+//--------------------------------------
+
+WRPARSE_API u8string_view
+Lexer::store(
+        u8string_view s
+)
+{
+        if (!s.empty()) {
+                char *copy = store(s.data(), s.bytes());
+                return { copy, s.bytes() };
+        } else {
+                return s;
+        }
 }
 
 //--------------------------------------

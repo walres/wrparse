@@ -1,8 +1,8 @@
 /**
- * \file SPPF.h
+ * \file wrparse/SPPF.h
  *
- * \brief Data types for representation and traversal of Shared Packed Parse
- *      Forests (SPPFs)
+ * \brief Data types for representation and traversal of Shared Packed
+ *      Parse Forests (SPPFs)
  *
  * \copyright
  * \parblock
@@ -23,7 +23,7 @@
  *
  * \endparblock
  *
- * \detail A Shared Packed Parse Forests (SPPF) represents all possible
+ * \detail A Shared Packed Parse Forest (SPPF) represents all possible
  *      traversals of a grammar for a given sequence of input tokens, including
  *      ambiguities -- an extension of the concept of a parse tree. An SPPF is
  *      made up of \i nodes - objects of the \c SPPFNode class - each of which
@@ -122,15 +122,16 @@ class ParseState;
 //--------------------------------------
 /**
  * \brief Base class for external data attachable to an SPPF node
+ * \headerfile SPPF.h <wrparse/SPPF.h>
  *
- * Users of the wrparse library can associate data directly with SPPF nodes by
- * overriding the \c AuxData class to add extra members, then use
- * SPPFNode::setAuxData() to attach their AuxData-derived object to the desired
- * node. SPPFNode::auxData() can be used to recall this data afterwards.
+ * Users of the wrparse library can associate data directly with SPPF nodes
+ * by overriding the `AuxData` class to add extra members, then use
+ * `SPPFNode::setAuxData()` to attach their `AuxData`-derived object to the
+ * desired node. `SPPFNode::auxData()` is then used to recall the data.
  *
  * \note This class is reference-counted for automatic memory management;
- *      instances attached to \c SPPFNode objects must always be created on the
- *      heap and not on the stack.
+ *      instances attached to `SPPFNode` objects must always be created on
+ *      the heap and not on the stack.
  */
 struct WRPARSE_API AuxData :
         public boost::intrusive_ref_counter<AuxData>
@@ -178,6 +179,82 @@ struct IntrusivePtrListTraits
 //--------------------------------------
 /**
  * \brief Shared Packed Parse Forest node
+ * \headerfile SPPF.h <wrparse/SPPF.h>
+ *
+ * Shared Packed Parse Forests represent all possible grammar traversals
+ * for a given sequence of input tokens, including ambiguities -- an
+ * extension of the concept of a parse tree. An SPPF is made up of *nodes* -
+ * objects of the `SPPFNode` class - each of which details what part of the
+ * input token stream they were matched against (zero or more tokens), what
+ * part of the grammar they matched (for packed / intermediate nodes), which
+ * parsed production or token type they refer to (for nonterminal or
+ * terminal symbol nodes), zero or more children plus any auxiliary data the
+ * user attaches to them.
+ *
+ * SPPF nodes come in three basic incarnations:
+ *
+ * * *Symbol* nodes represent a matched terminal (one token of a given
+ *      type) or a matched nonterminal (a set of zero or more tokens matched
+ *      to a production). Terminal symbol nodes do not have child nodes. A
+ *      symbol node is "labelled" with the terminal or nonterminal it
+ *      matched along with the range of tokens it covers (which may be
+ *      empty).
+ *
+ * * *Intermediate* nodes represent a partially-matched production. These
+ *      nodes are a necessary part of "binarising" the SPPF to ensure the
+ *      GLL parsing algorithm is of cubic complexity at most. An
+ *      intermediate node is "labelled" with a specific point in the grammar
+ *      that it is associated with and the range of tokens covered by its
+ *      children.
+ *
+ * * *Packed* nodes representing one complete parse (a 'fork') of the entity
+ *      represented by its parent. Packed nodes have at most two children
+ *      and also serve for "binarising" the SPPF. A packed node is
+ *      "labelled" with a specific point in the grammar (as is an
+ *      intermediate node) and a 'pivot' position representing the point in
+ *      the input token stream where its left child ends and its right child
+ *      begins (or where its only child begins, if there is just one).
+ *
+ * Some important rules to remember:
+ *
+ * * Nonterminal symbol nodes and intermediate nodes may have packed
+ *      children or other kinds of children, but never packed children mixed
+ *      with other kinds.
+ *
+ * * Terminal symbol nodes never have children.
+ *
+ * * If a symbol node or intermediate node has packed children, there will
+ *      be as many packed children as there were successful parses made by
+ *      tracing distinct paths through the grammar for the same set of
+ *      tokens. In short: more than one packed child means that ambiguities
+ *      exist.
+ *
+ * * Symbol or intermediate child nodes have be a maximum of two children.
+ *
+ * * Packed nodes only have symbol or intermediate nodes as children.
+ *
+ * Put another way, symbol nodes correspond to each matched fragment of the
+ * grammar. Intermediate nodes tie multiple symbol nodes together and link
+ * them to the actual points in the grammar they were matched against.
+ * Packed nodes represent 'forks' taken through the grammar from the same
+ * point (only one if there were no ambiguities).
+ *
+ * ### SPPF Traversal
+ *
+ * Several classes are available for traversing SPPFs in different ways:
+ *
+ * * `SPPFWalker` - the most basic; passes through the SPPF nodes literally
+ *      from a given start point, giving the user the ability to "walk
+ *      left", "walk right" or "backtrack" the way they came (but never
+ *      back past the start position).
+ * * `NonTerminalWalker` - hides some of the complexity of the SPPF in that
+ *      it provides iteration over the nonterminal subcomponents of the
+ *      starting node.
+ * * `SubProductionWalker` - based on `NonTerminalWalker`, differs from it
+ *      in that it initially descends through nonterminal subcomponents
+ *      that cover the same range of tokens as the starting node until it
+ *      finds a subcomponent that covers a strict subset of the starting
+ *      node. After this it behaves the same as `NonTerminalWalker`.
  */
 class WRPARSE_API SPPFNode :
         public boost::intrusive_ref_counter<SPPFNode>
@@ -185,99 +262,403 @@ class WRPARSE_API SPPFNode :
 public:
         using this_t = SPPFNode;
         using Ptr = boost::intrusive_ptr<this_t>;
+                ///< Pointer to reference-counted mutable SPPF node
         using ConstPtr = boost::intrusive_ptr<const this_t>;
+                ///< Pointer to reference-counted immutable SPPF node
         using ChildList = circ_fwd_list<Ptr>;
+                ///< Type of an `SPPFNode`'s child list
 
-        enum Kind { NONTERMINAL = 0, TERMINAL, PACKED, INTERMEDIATE };
+        /// SPPF node types
+        enum Kind
+        {
+                NONTERMINAL = 0,  ///< Nonterminal symbol node
+                TERMINAL,         ///< Terminal symbol node
+                PACKED,           ///< As implied
+                INTERMEDIATE      ///< As implied
+        };
 
         SPPFNode() = delete;
-        SPPFNode(const this_t &other) = delete;
+                ///< \brief Default construction prohibited
+        SPPFNode(const this_t &) = delete;
+                ///< \brief Copying prohibited
+
+        /**
+         * \brief Initialise with contents transferred from another object
+         * \param [in,out] other  object to be transferred
+         */
         SPPFNode(this_t &&other);
+
+        /// \brief Initialise a nonterminal symbol node
         SPPFNode(const Production &nonterminal, Token *first_token,
                  Token &last_token);
 
+        /// \brief Initialise a nonempty terminal symbol node
         SPPFNode(Token &terminal);
+
+        /// \brief Initialise a packed node
         SPPFNode(const Component &slot, Token &pivot, bool empty);
-                                                        // create packed node
+
+        /// \brief Initialise an intermediate node
         SPPFNode(const Component &component, Token *first_token,
-                 Token &last_token);  // create intermediate node
+                 Token &last_token);
 
-        ~SPPFNode();
+        ~SPPFNode();  ///< \brief Finalise object
 
+        /// \brief Obtain an empty terminal symbol node
         static this_t emptyNode(Token &next);
 
         this_t &operator=(const this_t &other) = delete;
-        this_t &operator=(this_t &&r);
+                ///< \brief Copying prohibited
 
-        Kind kind() const { return static_cast<Kind>(bits_ & 3); }
+        /**
+         * \brief Transfer other object's contents to `*this`
+         * \param [in,out] other  object to be transferred
+         * \return reference to `*this` object
+         */
+        this_t &operator=(this_t &&other);
 
-        const Production *nonTerminal() const;
-        TokenKind terminal() const;
-        const Rule *rule() const;
-        const Component *component() const;
+        /**
+         * \name Auxiliary Data Management Functions
+         *
+         * These functions are marked `const` since they do not affect
+         * parser operation.
+         */
+        ///@{
+        /**
+         * \brief Attach user-specific auxiliary data
+         * \param [in] data
+         *      pointer to auxiliary data, reference-counted hence shareable
+         */
         void setAuxData(AuxData::Ptr data) const { aux_data_ = data; }
-        AuxData::Ptr auxData() const             { return aux_data_; }
+
+        /**
+         * \brief Retrieve user-specific auxiliary data
+         * \return pointer to auxiliary data previously set by a call to
+         *      `setAuxData()` or `nullptr` if not set
+         */
+        AuxData::Ptr auxData() const { return aux_data_; }
+        ///@}
+
+        /**
+         * \name Hierarchy Management Functions
+         */
+        ///@{
+        /// \brief Retrieve mutable reference to the list of children
         ChildList &children()              { return children_; }
+        /// \brief Retrieve immutable reference to the list of children
         const ChildList &children() const  { return children_; }
+
+        /**
+         * \brief Obtain pointer to mutable first child node
+         * \return Pointer to first child node or `nullptr` if no children
+         */        
         Ptr firstChild();
+
+        /**
+         * \brief Obtain pointer to immutable first child node
+         * \return Pointer to first child node or `nullptr` if no children
+         */
         ConstPtr firstChild() const;
+
+        /**
+         * \brief Obtain pointer to mutable last child node
+         * \return Pointer to last child node or `nullptr` if no children
+         */        
         Ptr lastChild();
+
+        /**
+         * \brief Obtain pointer to immutable last child node
+         * \return Pointer to last child node or `nullptr` if no children
+         */
         ConstPtr lastChild() const;
+
+        /// \brief Determine whether node has any children
         bool hasChildren() const           { return !children_.empty(); }
+
+        /// \brief Obtain number of children
         size_t countChildren() const       { return children_.size(); }
+
+        /**
+         * \brief Add a new child to this node
+         *
+         * If `other` is a packed node it will become the first child,
+         * otherwise it will become the last child. This makes it easier
+         * to ensure that post-parse actions will 'see' new ambiguous
+         * matches.
+         *
+         * \param [in] other  the new child node
+         *
+         * \note `other` is not expected to already belong anywhere in
+         *      this node's hierarchy
+         *
+         * \throw std::logic_error if `(&other == this)`
+         */
+        void addChild(Ptr other);
+        ///@}
+
+        /**
+         * \name Matched Token Range Functions
+         */
+        ///@{
+        /// \brief Obtain number of input tokens matched by node
         size_t countTokens() const;
+
+        /// \brief Determine whether node matches an empty range of tokens
         bool empty() const                 { return !firstToken(); }
 
+        /**
+         * \brief Obtain pointer to first matched mutable token
+         * \return If matched token range is nonempty, a pointer to the
+         *      first token in that range
+         * \return `nullptr` if the matched token range is empty
+         */
         Token *firstToken();              // defined out-of-line below
+
+        /**
+         * \brief Obtain pointer to first matched immutable token
+         * \return If matched token range is nonempty, a pointer to the
+         *      first token in that range
+         * \return `nullptr` if the matched token range is empty
+         */
         const Token *firstToken() const;  // ditto
 
+        /**
+         * \brief Obtain pointer to last matched mutable token
+         * \return If matched token range is nonempty, a pointer to the last
+         *      token in that range
+         * \return If matched token range is empty, a pointer to the token
+         *      whose input position immediately follows this node
+         */
         Token *lastToken()                 { return last_token_; }
+
+        /**
+         * \brief Obtain pointer to last matched immutable token
+         * \return If matched token range is nonempty, a pointer to the last
+         *       token in that range
+         * \return If matched token range is empty, a pointer to the token
+         *      whose input position immediately follows this node
+         */
         const Token *lastToken() const     { return last_token_; }
+
+        /**
+         * \brief Obtain offset of first matched token from start of input
+         * \return If matched token range is nonempty, the offset in bytes
+         *      of the first matched token from the start of the input text
+         * \return -1 if matched token range is empty
+         */
         Token::Offset startOffset() const;
+
+        /**
+         * \brief Obtain offset of last matched token from start of input
+         * \return If matched token range is nonempty, the offset in bytes
+         *      of the last matched token from the start of the input text
+         * \return If matched token range is empty, the offset in bytes of
+         *      the token that immediately follows this node
+         */
         Token::Offset endOffset() const;
-        size_t size() const { return endOffset() - startOffset(); }
 
+        /// \brief Obtain number of bytes covered by input token range
+        size_t size() const
+                { return !empty() ? endOffset() - startOffset() : 0; }
+
+        /// \brief Obtain copy of matched input content
         std::string content(int max_tokens = -1) const;
-        void dump() const;
+        ///@}
 
+        /**
+         * @name Informational, Debugging and Diagnostic Functions
+         */
+        ///@{
+        /// \brief Obtain node's type
+        Kind kind() const { return static_cast<Kind>(bits_ & 3); }
+
+        /**
+         * \brief Obtain pointer to linked grammar production
+         * \return For a nonterminal symbol node: a pointer to the
+         *      nonterminal `Production` object specified at initialisation
+         *      time
+         * \return For a packed or intermediate node: a pointer to the
+         *      `Production` object which defines the `Rule` containing the
+         *      grammar slot (`Component` object reference) specified at
+         *      initialisation time
+         * \return `nullptr` for terminal symbol node
+         */
+        const Production *nonTerminal() const;
+
+        /**
+         * \brief Obtain token type of terminal symbol node
+         * \return For a nonempty terminal symbol node, the `TokenKind`
+         *      describing the terminal type
+         * \return `TOK_NULL` for all other node types
+         */
+        TokenKind terminal() const;
+
+        /**
+         * \brief Obtain enclosing rule from packed or intermediate node
+         */
+        const Rule *rule() const;
+
+        /**
+         * \brief Obtain referenced grammar slot from packed or
+         *      intermediate node
+         */
+        const Component *component() const;
+
+        /**
+         * \brief Obtain a hash code for this node
+         *
+         * The hash code is generated from the node type, nonterminal
+         * production, grammar slot and matched token range. The list of
+         * children and auxiliary user data are not involved.
+         */
+        const size_t hash() const;
+
+        /**
+         * \brief Compare two nodes for equality
+         *
+         * Two nodes are considered equal iff:
+         *
+         * * they are both nonterminal symbol nodes, they both refer to
+         *   the same nonterminal production and match the same range of
+         *   input tokens
+         * * they are both terminal symbol nodes and they both matched the
+         *   same input token
+         * * they are both packed symbol nodes, they both refer to the same
+         *   grammar slot and have the same pivot
+         * * they are both intermediate symbol nodes, they both refer to
+         *   the same grammar slot and match the same range of input tokens
+         *
+         * \param [in] other  node on right-hand side of comparison operator
+         *
+         * \return `true` if the nodes are considered equal,
+         *      `false` otherwise
+         */
         bool operator==(const this_t &other) const;
+
+        /**
+         * \brief Compare two nodes for inequality
+         * \param [in] other  node on right-hand side of comparison operator
+         * \return `true` if the nodes are considered inequal,
+         *      `false` otherwise
+         * \see \c operator==()
+         */
         bool operator!=(const this_t &other) const
                 { return !operator==(other); }
 
+        /**
+         * \brief Output nonterminal symbol node hierarchy to the `wr::uerr`
+         *      stream
+         * \pre `*this` is a nonterminal symbol node
+         */
+        void dump() const;
+
+        /**
+         * Write this node's complete hierarchy to a Graphviz DOT file
+         *
+         * The file is created if it does not exist.
+         *
+         * \param [in] file_name  desired path of file
+         * \return `true` if file successfully written, `false` otherwise
+         */
+        bool writeDOTGraphFile(const char *file_name) const;
+
+        /**
+         * Output this node's complete hierarchy in Graphviz DOT format
+         * \param [in,out] output  data is written here
+         */
+        void writeDOTGraph(std::ostream &output) const;
+
+        /**
+         * \brief Helper function for `writeDOTGraph()`
+         *
+         * This is a recursive function that invokes `writeDOTNode()` for
+         * this node and all children.
+         *
+         * \param [in,out] output  data is written here
+         */
+        void writeDOTNodes(std::ostream &output) const;
+
+        /**
+         * \brief Helper function for `writeDOTGraph()`
+         *
+         * Writes a single DOT node record for this SPPF node, plus DOT edge
+         * records (but not node records) for its children.
+         *
+         * \param [in,out] output  data is written here
+         */
+        void writeDOTNode(std::ostream &output) const;
+        ///@}
+
         bool isNonTerminal() const { return kind() == NONTERMINAL; }
+                ///< \brief Test whether object is a nonterminal symbol node
         bool isTerminal() const { return kind() == TERMINAL; }
+                ///< \brief Test whether object is a terminal symbol node
         bool isSymbol() const { return isNonTerminal() || isTerminal(); }
+                ///< \brief Test whether object is any symbol node
         bool isPacked() const { return kind() == PACKED; }
+                ///< \brief Test whether object is a packed node
         bool isIntermediate() const { return kind() == INTERMEDIATE; }
+                ///< \brief Test whether object is an intermediate node
 
         bool is(const this_t &other) const;
+                ///< \brief Test whether two nodes matched the same tokens
         bool is(TokenKind terminal) const;
+                /**< \brief Test whether the node matched a single token of
+                        the specified type */
+
+        ///@{
+        /**
+         * \brief Test whether this node,or any nonterminal descendant
+         *      matching the same range of tokens, matched the specified
+         *      production
+         * \param [in]  nonterminal  production to search for
+         * \param [out] out_pos      matching node, if found
+         * \return `true` if any of the nodes searched matched
+         *      `nonterminal`, `false` otherwise
+         */
         bool is(const Production &nonterminal) const;
         bool is(const Production &nonterminal, Ptr &out_pos);
         bool is(const Production &nonterminal, ConstPtr &out_pos) const;
+        ///@}
 
+        ///@{
+        /**
+         * \brief Search the hierarchy below for the next nonterminal
+         *      symbol node that matched the specified production
+         *
+         * The search is limited to the depth specified by `max_depth`.
+         *
+         * \param [in] nonterminal  production to search for
+         * \param [in] max_depth
+         *      depth limit, where each increment counts as one level of
+         *      nonterminal descendancy, not one level in the SPPF.
+         *      A negative value indicates unlimited depth; zero
+         *      indicates 'do not examine below `*this`'
+         *
+         * \return Pointer to target node if found, `nullptr` otherwise
+         */
         Ptr find(const Production &nonterminal, int max_depth = -1);
 
         ConstPtr find(const Production &nonterminal, int max_depth = -1) const
             { return const_cast<this_t *>(this)->find(nonterminal, max_depth); }
+        ///@}
 
-        void addChild(Ptr other);
-
-        const size_t hash() const;
-
-        bool writeDOTGraphFile(const char *file_name) const;
-        void writeDOTGraph(std::ostream &output) const;
-        void writeDOTNodes(std::ostream &output) const;
-        void writeDOTNode(std::ostream &output) const;
-
+        /// \brief Hash functor class
         struct Hash
         {
+                /// \brief Obtain hash code from SPPF node reference
                 size_t operator()(const SPPFNode &n) const { return n.hash(); }
+                /// \brief Obtain hash node indirectly from SPPF node pointer
                 size_t operator()(ConstPtr n) const        { return n->hash(); }
         };
 
+        /// \brief Hash table key comparison functor
         struct IndirectEqual
         {
+                /**
+                 * \brief Compare two nodes' contents given their pointers
+                 * \pre `a` and `b` are both non-null
+                 */
                 bool operator()(ConstPtr a, ConstPtr b) const
                         { return (*a) == (*b); }
         };
@@ -325,7 +706,12 @@ SPPFNode::firstToken() const
 }
 
 //--------------------------------------
-
+/**
+ * \brief Template class implementing basic SPPF traversal
+ * \headerfile SPPF.h <wrparse/SPPF.h>
+ * \see type `SPPFWalker`, type `SPPFConstWalker`,
+ *      class `NonTerminalWalkerTemplate`, class `SubProductionWalkerTemplate`
+ */
 template <typename NodeT>
 class WRPARSE_API SPPFWalkerTemplate
 {
@@ -372,11 +758,27 @@ private:
 extern template class SPPFWalkerTemplate<SPPFNode>;
 extern template class SPPFWalkerTemplate<const SPPFNode>;
 
+/**
+ * \brief Instantiation of class `SPPFWalkerTemplate` for mutable SPPF nodes
+ * \see class `SPPFWalkerTemplate`
+ */
 using SPPFWalker = SPPFWalkerTemplate<SPPFNode>;
+
+/**
+ * \brief Instantiation of class `SPPFWalkerTemplate` for immutable SPPF nodes
+ * \see class `SPPFWalkerTemplate`
+ */
 using SPPFConstWalker = SPPFWalkerTemplate<const SPPFNode>;
 
 //--------------------------------------
-
+/**
+ * \brief Template class implementing traversal of an SPPF node's
+ *      nonterminal descendants
+ * \headerfile SPPF.h <wrparse/SPPF.h>
+ * \see function `nonTerminals()`, type `NonTerminalWalker`,
+ *      type `NonTerminalConstWalker`, class `SPPFWalkerTemplate`,
+ *      class `SubProductionWalkerTemplate`
+ */
 template <typename NodeT>
 class WRPARSE_API NonTerminalWalkerTemplate :
         protected SPPFWalkerTemplate<NodeT>
@@ -441,11 +843,29 @@ private:
 extern template class NonTerminalWalkerTemplate<SPPFNode>;
 extern template class NonTerminalWalkerTemplate<const SPPFNode>;
 
+/**
+ * \brief Instantiation of class `NonTerminalWalkerTemplate` for mutable
+ *      SPPF nodes
+ * \see function `nonTerminals()`, class `NonTerminalWalkerTemplate`
+ */
 using NonTerminalWalker = NonTerminalWalkerTemplate<SPPFNode>;
+/**
+ * \brief Instantiation of class `NonTerminalWalkerTemplate` for immutable
+ *      SPPF nodes
+ * \see function `nonTerminals()`, class `NonTerminalWalkerTemplate`
+ */
 using NonTerminalConstWalker = NonTerminalWalkerTemplate<const SPPFNode>;
 
 //--------------------------------------
-
+///@{
+/**
+ * \brief Obtain an object for traversing an `SPPFNode`'s nonterminal
+ *      descendants
+ * \param [in] under  root SPPF node to traverse from
+ * \return a `NonTerminalWalkerTemplate` traversal object
+ * \see type `NonTerminalWalker`, type `NonTerminalConstWalker`,
+ *      class `NonTerminalWalkerTemplate`
+ */
 inline NonTerminalWalker nonTerminals(SPPFNode::Ptr under)
         { return NonTerminalWalker(under); }
 
@@ -457,14 +877,30 @@ inline NonTerminalWalker nonTerminals(SPPFNode &under)
 
 inline NonTerminalConstWalker nonTerminals(const SPPFNode &under)
         { return NonTerminalConstWalker(&under); }
+///@}
 
+///@{
+/**
+ * \brief Count the number of immediate nonterminal descendants under the
+ *      specified SPPF node
+ * \param [in] under  root SPPF node to search from
+ * \return number of immediate nonterminal descendants
+ */
 WRPARSE_API size_t countNonTerminals(const SPPFNode &under);
 
 inline size_t countNonTerminals(SPPFNode::ConstPtr under)
         { return countNonTerminals(*under); }
+///@}
 
 //--------------------------------------
-
+/**
+ * \brief Template class implementing traversal of an SPPF node's
+ *      strict sub-productions
+ * \headerfile SPPF.h <wrparse/SPPF.h>
+ * \see function `subProductions()`, type `SubProductionWalker`,
+ *      type `SubProductionConstWalker`, class `SPPFWalkerTemplate`,
+ *      class `NonTerminalWalkerTemplate`
+ */
 template <typename NodeT>
 class WRPARSE_API SubProductionWalkerTemplate :
         protected NonTerminalWalkerTemplate<NodeT>
@@ -521,11 +957,27 @@ private:
 extern template class SubProductionWalkerTemplate<SPPFNode>;
 extern template class SubProductionWalkerTemplate<const SPPFNode>;
 
+/**
+ * Instantiation of `SubProductionWalkerTemplate` for mutable SPPF nodes
+ * \see function `subProductions()`, class `SubProductionWalkerTemplate`
+ */
 using SubProductionWalker = SubProductionWalkerTemplate<SPPFNode>;
+
+/**
+ * Instantiation of `SubProductionWalkerTemplate` for immutable SPPF nodes
+ * \see function `subProductions()`, class `SubProductionWalkerTemplate`
+ */
 using SubProductionConstWalker = SubProductionWalkerTemplate<const SPPFNode>;
 
 //--------------------------------------
-
+///@{
+/**
+ * \brief Obtain an object for traversing an `SPPFNode`'s sub-productions
+ * \param [in] under  root SPPF node to traverse from
+ * \return a `SubProductionWalkerTemplate` traversal object
+ * \see type `SubProductionWalker`, type `SubProductionConstWalker`,
+ *      class `SubProductionWalkerTemplate`, function `nonTerminals()`
+ */
 inline SubProductionWalker subProductions(SPPFNode::Ptr under)
         { return SubProductionWalker(under); }
 
@@ -537,6 +989,7 @@ inline SubProductionWalker subProductions(SPPFNode &under)
 
 inline SubProductionConstWalker subProductions(const SPPFNode &under)
         { return SubProductionConstWalker(&under); }
+///@}
 
 
 } // namespace parse

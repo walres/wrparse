@@ -89,8 +89,8 @@ public:
         const Parser &parser() const          { return parser_; }
         Parser &parser()                      { return parser_; }
         const Production &start() const       { return start_; }
-        const Rule *rule() const              { return rule_; }
-        const Production &production() const  { return production_; }
+        const Rule &rule() const              { return rule_; }
+        const Production &production() const  { return *rule_.production(); }
         SPPFNode::ConstPtr parsedNode() const { return parsed_; }
         Token *input() const                  { return input_pos_; }
 
@@ -100,18 +100,13 @@ private:
 
         ParseState(const this_t &other);
 
-        ParseState(Parser &parser, const Production &start,
-                   const Production &production, Token *input_pos,
-                   SPPFNode::ConstPtr parsed = nullptr);
-
         ParseState(Parser &parser, const Production &start, const Rule &rule,
                    Token *input_pos, SPPFNode::ConstPtr parsed = nullptr);
 
 
         Parser             &parser_;
-        const Production   &start_,
-                           &production_;
-        const Rule         *rule_;
+        const Production   &start_;
+        const Rule         &rule_;
         Token              *input_pos_;
         SPPFNode::ConstPtr  parsed_;
 };

@@ -474,8 +474,8 @@ Production::Production(
         keep_recursion_       ((flags & KEEP_RECURSION) != 0)
 {
         if (enable) {
-                rules_ = std::move(rules);
-                initRules(rules_, rules_.begin());
+                base_t::operator=(std::move(rules));
+                initRules();
         }
 }
 
@@ -488,8 +488,8 @@ Production::operator=(
 {
         if (&other != this) {
                 name_ = other.name_;
-                rules_ = other.rules_;
-                initRules(rules_, rules_.begin());
+                base_t::operator=(other);
+                initRules();
                 initial_terminals_ = other.initial_terminals_;
                 flags_ = other.flags_;
                 // don't copy actions
@@ -508,8 +508,8 @@ Production::operator=(
         if (&other != this) {
                 name_ = other.name_;
                 other.name_ = "";
-                rules_ = std::move(other.rules_);
-                initRules(rules_, rules_.begin());
+                base_t::operator=(std::move(other));
+                initRules();
                 initial_terminals_ = std::move(other.initial_terminals_);
                 flags_ = other.flags_;
                 pre_parse_actions_ = std::move(other.pre_parse_actions_);
@@ -526,9 +526,9 @@ Production::operator+=(
         const Rules &other
 ) -> this_t &
 {
-        size_t i = rules_.size();
-        rules_.insert(rules_.end(), other.begin(), other.end());
-        initRules(rules_, std::next(rules_.begin(), i));
+        size_t i = size();
+        base_t::insert(end(), other.begin(), other.end());
+        initRules(i);
         initial_terminals_.clear();
         got_initial_terminals_ = false;
         return *this;
@@ -541,10 +541,10 @@ Production::operator+=(
         Rules &&other
 ) -> this_t &
 {
-        initRules(other, other.begin());
         for (Rule &rule: other) {
                 if (rule.isEnabled()) {
-                        rules_.emplace_back(std::move(rule));
+                        base_t::emplace(end(), std::move(rule))
+                                ->production_ = this;
                 }
         }
         initial_terminals_.clear();
@@ -581,9 +581,9 @@ Production::indexOf(
         const Rule &rule
 ) const
 {
-        ptrdiff_t i = &rule - &rules_[0];
+        ptrdiff_t i = &rule - &(*this)[0];
 
-        if ((i < 0) || i >= numeric_cast<ptrdiff_t>(rules_.size())) {
+        if ((i < 0) || i >= numeric_cast<ptrdiff_t>(size())) {
                 i = -1;
         }
 
@@ -607,12 +607,11 @@ Production::initialTerminals() const -> const Terminals &
 
 void
 Production::initRules(
-        Rules           &rules,
-        Rules::iterator  pos
+        size_t from_pos
 )
 {
-        for (auto end = rules.end(); pos != end; ++pos) {
-                pos->production_ = this;
+        for (size_t count = size(); from_pos != count; ++from_pos) {
+                base_t::operator[](from_pos).production_ = this;
         }
 }
 
@@ -636,7 +635,7 @@ Production::initTerminalsAndLL1(
                                   i.e. where all components preceding the
                                   recursive one are optional or may be empty */
 
-        for (const Rule &rule: rules_) {
+        for (const Rule &rule: *this) {
                 if (!rule.isEnabled()) {
                         continue;
                 }
@@ -645,7 +644,7 @@ Production::initTerminalsAndLL1(
 
                 if (status == InitTerminalsStatus::IS_LR) {
                         lr_rules.push_back(
-                                numeric_cast<size_t>(&rule - &rules_[0]));
+                                numeric_cast<size_t>(&rule - &(*this)[0]));
                 } else if (status != InitTerminalsStatus::OK) {
                         lr_rules.clear();  // don't bother processing these
                         break;
@@ -756,7 +755,7 @@ Production::dump(
 {
         to << name() << ":\n";
 
-        for (const Rule &rule: rules_) {
+        for (const Rule &rule: *this) {
                 to << "    ";
                 rule.dump(to, lexer);
                 to << '\n';
