@@ -23,15 +23,15 @@
  *
  * \endparblock
  *
- * \detail Shared Packed Parse Forests represent all possible grammar
- *      traversals for a given sequence of input tokens, including ambiguities
- *      -- an extension of the concept of a parse tree. An SPPF is made up of
- *      \i nodes - objects of the \c SPPFNode class - each of which details
- *      what part of the input token stream they were matched against (zero or
- *      more tokens), what point in the grammar they stem from (for packed /
- *      intermediate nodes), which parsed production or token type they refer
- *      to (for nonterminal or terminal symbol nodes), zero or more children
- *      plus any auxiliary data the user wishes to attach to them.
+ * \detail A Shared Packed Parse Forests (SPPF) represents all possible
+ *      traversals of a grammar for a given sequence of input tokens, including
+ *      ambiguities -- an extension of the concept of a parse tree. An SPPF is
+ *      made up of \i nodes - objects of the \c SPPFNode class - each of which
+ *      details what part of the input token stream they were matched against
+ *      (zero or more tokens), what point in the grammar they stem from (for
+ *      packed / intermediate nodes), which parsed production or token type
+ *      they refer to (for nonterminal or terminal symbol nodes), zero or more
+ *      children plus any auxiliary data the user wishes to attach to them.
  *
  *      SPPF nodes come in three basic incarnations:
  *
