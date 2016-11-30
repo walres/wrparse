@@ -527,7 +527,8 @@ Production::operator+=(
 ) -> this_t &
 {
         size_t i = size();
-        base_t::insert(end(), other.begin(), other.end());
+        base_t::insert(base_t::end(), other.base_t::begin(),
+                       other.base_t::end());
         initRules(i);
         initial_terminals_.clear();
         got_initial_terminals_ = false;
@@ -543,7 +544,7 @@ Production::operator+=(
 {
         for (Rule &rule: other) {
                 if (rule.isEnabled()) {
-                        base_t::emplace(end(), std::move(rule))
+                        base_t::emplace(base_t::end(), std::move(rule))
                                 ->production_ = this;
                 }
         }
