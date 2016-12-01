@@ -92,7 +92,7 @@ public:
 
                 const Rule *fromRule() const { return return_addr_->rule(); }
 
-                const Production *fromProduction() const;
+                const NonTerminal *fromNonTerminal() const;
 
                 Token *inputPos() const { return input_pos_; }
 
@@ -160,10 +160,10 @@ private:
 
 //--------------------------------------
 
-const Production *
-Parser::GSS::Node::fromProduction() const
+const NonTerminal *
+Parser::GSS::Node::fromNonTerminal() const
 {
-        return fromRule() ? fromRule()->production() : nullptr;
+        return fromRule() ? fromRule()->nonTerminal() : nullptr;
 }
 
 //--------------------------------------
@@ -202,7 +202,7 @@ Parser::GSS::Edge::operator<(
 class Parser::GLL
 {
 public:
-        GLL(Parser &parser, const Production &start) :
+        GLL(Parser &parser, const NonTerminal &start) :
                 parser_(parser), start_(start) {}
 
         SPPFNode::Ptr parseMain(Token *input_start);
@@ -275,9 +275,9 @@ private:
                                              SPPFNode::IndirectEqual>;
 
 
-        const Production &getProduction(const Descriptor &d) const;
+        const NonTerminal &getNonTerminal(const Descriptor &d) const;
 
-        bool beginNonTerminal(const Production &nonterminal,
+        bool beginNonTerminal(const NonTerminal &nonterminal,
                               const GSS::Node *gss_head,
                               Token *input_pos, unsigned short depth);
 
@@ -290,7 +290,7 @@ private:
         bool visited(GrammarAddress address, const GSS::Node *gss_head,
                      Token *input_pos, SPPFNode::ConstPtr sppf_node) const;
 
-        bool test(const Token *input_pos, const Production &nonterminal,
+        bool test(const Token *input_pos, const NonTerminal &nonterminal,
                   GrammarAddress trailing_terms) const;
 
         bool testFollow(const Token *input_pos,
@@ -319,14 +319,14 @@ private:
         SPPFNode::Ptr getEmptyNodeAt(Token &pos);
 
 
-        Parser           &parser_;
-        const Production &start_;
-        GSS               gss_;
-        SPPFNodes         sppf_nodes_;
-        SPPFNode::Ptr     matched_;      // longest top-level match
-        PoppedSet         popped_;       // P in GLL paper
-        DescriptorStack   in_progress_;  // R in GLL paper
-        VisitedItems      visited_;      // U in GLL paper
+        Parser            &parser_;
+        const NonTerminal &start_;
+        GSS                gss_;
+        SPPFNodes          sppf_nodes_;
+        SPPFNode::Ptr      matched_;      // longest top-level match
+        PoppedSet          popped_;       // P in GLL paper
+        DescriptorStack    in_progress_;  // R in GLL paper
+        VisitedItems       visited_;      // U in GLL paper
 };
 
 //--------------------------------------
@@ -358,7 +358,7 @@ Parser::GLL::gdb_R() const
         ulog << '\n';
 
         for (const Descriptor &d: in_progress_) {
-                ulog << setw(DEBUG_INDENT) << "" << getProduction(d).name();
+                ulog << setw(DEBUG_INDENT) << "" << getNonTerminal(d).name();
 
                 if (d.address_) {
                         const Rule &rule = *d.address_->rule();
@@ -412,13 +412,13 @@ Parser::GLL::sppfToDOTFile(
 
 //--------------------------------------
 
-const Production &
-Parser::GLL::getProduction(
+const NonTerminal &
+Parser::GLL::getNonTerminal(
         const Descriptor &d
 ) const
 {
         if (d.address_) {
-                return *d.address_->rule()->production();
+                return *d.address_->rule()->nonTerminal();
         } else {
                 return start_;
         }
@@ -468,10 +468,10 @@ Parser::GLL::parseMain(
  */
 bool
 Parser::GLL::beginNonTerminal(
-        const Production &nonterminal,
-        const GSS::Node  *gss_head,
-        Token            *input_pos,
-        unsigned short    depth
+        const NonTerminal &nonterminal,
+        const GSS::Node   *gss_head,
+        Token             *input_pos,
+        unsigned short     depth
 )
 {
         auto   &terminals = nonterminal.initialTerminals();
@@ -538,7 +538,7 @@ Parser::GLL::beginRule(
 {
         ParseState state(parser_, start_, rule, input_pos);
 
-        if (!rule.production()->invokePreParseActions(state)) {
+        if (!rule.nonTerminal()->invokePreParseActions(state)) {
                 return false;
         }
 
@@ -576,17 +576,17 @@ Parser::GLL::parse(
                 ulog << setw(d.depth_ * DEBUG_INDENT) << "";
 
                 // these variables make setting conditional breakpoints easy
-                auto *production = rule.production();
-                auto  i_rule     = rule.index(),
-                      i_comp     = d.address_->index();
-                auto  offset     = d.input_pos_->offset();
+                auto *nonterminal = rule.nonTerminal();
+                auto  i_rule      = rule.index(),
+                      i_comp      = d.address_->index();
+                auto  offset      = d.input_pos_->offset();
 
                 if (i_comp == 0) {
                         ulog << "ENTER  ";
                 } else {
                         ulog << "RESUME ";
                 }
-                ulog << production->name() << '.' << i_rule
+                ulog << nonterminal->name() << '.' << i_rule
                      << '[' << i_comp << "] @ " << offset << std::endl;
         }
 
@@ -636,8 +636,8 @@ Parser::GLL::parse(
                                                 getEmptyNodeAt(*d.input_pos_));
                         }
                 } else if (step.isNonTerminal()) {
-                        GrammarAddress    return_addr = std::next(d.address_);
-                        const Production *nonterminal = step.getAsNonTerminal();
+                        GrammarAddress return_addr = std::next(d.address_);
+                        auto           nonterminal = step.getAsNonTerminal();
 
                         bool skip_optional = step.isOptional()
                                         && !nonterminal->matchesEmpty()
@@ -673,8 +673,8 @@ Parser::GLL::parse(
                                 /* must return directly to main loop
                                    (equivalent of goto L0 in GLL paper) */
                                 break;
-                        } /* else optional production that doesn't match empty:
-                             attempt path omitting that production */
+                        } /* else optional nonterminal that doesn't match empty:
+                             attempt path omitting that nonterminal */
 
                         d.sppf_node_ = getNodeP(d.address_, d.sppf_node_,
                                                 getEmptyNodeAt(*d.input_pos_));
@@ -704,7 +704,7 @@ Parser::GLL::endRule(
         if (ok) {
                 ParseState state(parser_, start_, rule, d.input_pos_,
                                  d.sppf_node_);
-                if (!rule.production()->invokePostParseActions(state)) {
+                if (!rule.nonTerminal()->invokePostParseActions(state)) {
                         ok = false;
                         dbg_prefix = "XCFAIL ";
                 }
@@ -726,7 +726,7 @@ Parser::GLL::endRule(
                 }
 
                 ulog << setw(d.depth_ * DEBUG_INDENT) << "" << dbg_prefix
-                     << rule.production()->name() << '.' << i_rule;
+                     << rule.nonTerminal()->name() << '.' << i_rule;
 
                 if (log_comp_ix) {
                         ulog << '[' << i_comp << ']';
@@ -756,9 +756,9 @@ Parser::GLL::visited(
 
 bool
 Parser::GLL::test(
-        const Token      *input_pos,
-        const Production &nonterminal,
-        GrammarAddress    trailing_terms
+        const Token       *input_pos,
+        const NonTerminal &nonterminal,
+        GrammarAddress     trailing_terms
 ) const
 {
         return nonterminal.initialTerminals().empty()
@@ -822,10 +822,10 @@ Parser::GLL::add(
 
                 if (d.address_) {
                         const Rule &rule = *d.address_->rule();
-                        auto *production = rule.production();
+                        auto *nonterminal = rule.nonTerminal();
                         auto  i_rule = rule.index(),
                               i_comp = d.address_->index();
-                        ulog << production->name() << '.' << i_rule
+                        ulog << nonterminal->name() << '.' << i_rule
                              << '[' << i_comp << ']';
                 } else {
                         ulog << start_.name();
@@ -1046,16 +1046,16 @@ Parser::GLL::getNodeP(
         SPPFNode::Ptr ret;
 
         if (on_last_slot) {
-                ret = getNode(new SPPFNode(*rule.production(), left_extent,
+                ret = getNode(new SPPFNode(*rule.nonTerminal(), left_extent,
                                            *right_extent)).first;
         } else {
                 ret = getNode(new SPPFNode(*slot, left_extent,
                                            *right_extent)).first;
 
                 if (!left && right->isNonTerminal()
-                          && (right->nonTerminal() == rule.production())
+                          && (right->nonTerminal() == rule.nonTerminal())
                           && slot->isRecursive()
-                          && !rule.production()->keepRecursion()) {
+                          && !rule.nonTerminal()->keepRecursion()) {
                         for (auto child: right->children()) {
                                 ret->addChild(child);
                         }
@@ -1187,7 +1187,7 @@ Parser::enableDebug(
 
 WRPARSE_API SPPFNode::Ptr
 Parser::parse(
-        const Production &start
+        const NonTerminal &start
 )
 {
         if (!lexer_) {
@@ -1240,11 +1240,11 @@ Parser::parse(
 
 WRPARSE_API
 ParseState::ParseState(
-        Parser             &parser,
-        const Production   &start,
-        const Rule         &rule,
-        Token              *input_pos,
-        SPPFNode::ConstPtr  parsed
+        Parser              &parser,
+        const NonTerminal   &start,
+        const Rule          &rule,
+        Token               *input_pos,
+        SPPFNode::ConstPtr   parsed
 ) :
         parser_    (parser),
         start_     (start),

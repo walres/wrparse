@@ -66,9 +66,9 @@ Component::Component(
 
 WRPARSE_API
 Component::Component(
-        const Production &nonterminal,
-        bool              is_optional,
-        Predicate         predicate
+        const NonTerminal &nonterminal,
+        bool               is_optional,
+        Predicate          predicate
 ) :
         nonterminal_(&nonterminal),
         predicate_  (predicate),
@@ -97,7 +97,7 @@ Component::Component(
 WRPARSE_API bool
 Component::isRecursive() const
 {
-        return rule_ && (rule_->production() == getAsNonTerminal());
+        return rule_ && (rule_->nonTerminal() == getAsNonTerminal());
 }
 
 //--------------------------------------
@@ -218,8 +218,8 @@ Rule::Rule(
         std::initializer_list<Component> init,
         bool                             enable
 ) :
-        production_(nullptr),
-        enabled_   (enable)
+        nonterminal_(nullptr),
+        enabled_    (enable)
 {
         reserve(init.size() + 1);
         base_t::operator=(init);
@@ -233,8 +233,8 @@ WRPARSE_API
 Rule::Rule(
         const this_t &other
 ) :
-        base_t     (other),
-        production_(other.production_),
+        base_t      (other),
+        nonterminal_(other.nonterminal_),
         enabled_   (other.enabled_)
 {
         updateComponents();
@@ -246,9 +246,9 @@ WRPARSE_API
 Rule::Rule(
         this_t &&other
 ) :
-        base_t     (std::move(other)),
-        production_(other.production_),
-        enabled_   (other.enabled_)
+        base_t      (std::move(other)),
+        nonterminal_(other.nonterminal_),
+        enabled_    (other.enabled_)
 {
         updateComponents();
 }
@@ -262,7 +262,7 @@ Rule::operator=(
 {
         if (&other != this) {
                 base_t::operator=(other);
-                production_ = other.production_;
+                nonterminal_ = other.nonterminal_;
                 enabled_ = other.enabled_;
                 updateComponents();
         }
@@ -278,7 +278,7 @@ Rule::operator=(
 {
         if (&other != this) {
                 base_t::operator=(std::move(other));
-                production_ = other.production_;
+                nonterminal_ = other.nonterminal_;
                 enabled_ = other.enabled_;
                 updateComponents();
         }
@@ -300,7 +300,7 @@ Rule::updateComponents()
 WRPARSE_API int
 Rule::index() const
 {
-        return production_ ? production_->indexOf(*this) : -1;
+        return nonterminal_ ? nonterminal_->indexOf(*this) : -1;
 }
 
 //--------------------------------------
@@ -324,7 +324,7 @@ Rule::indexOf(
 WRPARSE_API bool
 Rule::isLeftRecursive() const
 {
-        return !empty() && (front().getAsNonTerminal() == production_);
+        return !empty() && (front().getAsNonTerminal() == nonterminal_);
 }
 
 //--------------------------------------
@@ -335,7 +335,7 @@ Rule::isRecursive() const
         bool is = false;
 
         for (const Component &comp: *this) {
-                if (comp.getAsNonTerminal() == production_) {
+                if (comp.getAsNonTerminal() == nonterminal_) {
                         is = true;
                         break;
                 }
@@ -358,9 +358,9 @@ Rule::isDelegate() const
 WRPARSE_API bool
 Rule::mustHide() const
 {
-        return production_
-               && (production_->isTransparent()
-                   || (isDelegate() && production_->hideIfDelegate()));
+        return nonterminal_
+               && (nonterminal_->isTransparent()
+                   || (isDelegate() && nonterminal_->hideIfDelegate()));
 }
 
 //--------------------------------------
@@ -428,7 +428,7 @@ Rule::gdb(
 //--------------------------------------
 
 WRPARSE_API
-Production::Production() :
+NonTerminal::NonTerminal() :
         name_ (""),
         flags_(0)
 {
@@ -437,7 +437,7 @@ Production::Production() :
 //--------------------------------------
 
 WRPARSE_API
-Production::Production(
+NonTerminal::NonTerminal(
         const this_t &other
 ) :
         this_t()
@@ -448,7 +448,7 @@ Production::Production(
 //--------------------------------------
 
 WRPARSE_API
-Production::Production(
+NonTerminal::NonTerminal(
         this_t &&other
 ) :
         this_t()
@@ -459,7 +459,7 @@ Production::Production(
 //--------------------------------------
 
 WRPARSE_API
-Production::Production(
+NonTerminal::NonTerminal(
         const char * const name,
         bool               enable,
         Rules              rules,
@@ -482,7 +482,7 @@ Production::Production(
 //--------------------------------------
 
 WRPARSE_API auto
-Production::operator=(
+NonTerminal::operator=(
         const this_t &other
 ) -> this_t &
 {
@@ -501,7 +501,7 @@ Production::operator=(
 //--------------------------------------
 
 WRPARSE_API auto
-Production::operator=(
+NonTerminal::operator=(
         this_t &&other
 ) -> this_t &
 {
@@ -522,7 +522,7 @@ Production::operator=(
 //--------------------------------------
 
 WRPARSE_API auto
-Production::operator+=(
+NonTerminal::operator+=(
         const Rules &other
 ) -> this_t &
 {
@@ -538,14 +538,14 @@ Production::operator+=(
 //--------------------------------------
 
 WRPARSE_API auto
-Production::operator+=(
+NonTerminal::operator+=(
         Rules &&other
 ) -> this_t &
 {
         for (Rule &rule: other) {
                 if (rule.isEnabled()) {
                         base_t::emplace(base_t::end(), std::move(rule))
-                                ->production_ = this;
+                                ->nonterminal_ = this;
                 }
         }
         initial_terminals_.clear();
@@ -556,7 +556,7 @@ Production::operator+=(
 //--------------------------------------
 
 WRPARSE_API bool
-Production::matchesEmpty() const
+NonTerminal::matchesEmpty() const
 {
         if (!got_initial_terminals_) {
                 initialTerminals();  // initialises matches_empty_
@@ -567,7 +567,7 @@ Production::matchesEmpty() const
 //--------------------------------------
 
 WRPARSE_API bool
-Production::isLL1() const
+NonTerminal::isLL1() const
 {
         if (!got_initial_terminals_) {
                 initialTerminals();  // initialises is_ll1_
@@ -578,7 +578,7 @@ Production::isLL1() const
 //--------------------------------------
 
 WRPARSE_API int
-Production::indexOf(
+NonTerminal::indexOf(
         const Rule &rule
 ) const
 {
@@ -594,7 +594,7 @@ Production::indexOf(
 //--------------------------------------
 
 WRPARSE_API auto
-Production::initialTerminals() const -> const Terminals &
+NonTerminal::initialTerminals() const -> const Terminals &
 {
         if (!got_initial_terminals_) {
                 std::set<const this_t *> visited;
@@ -607,19 +607,19 @@ Production::initialTerminals() const -> const Terminals &
 //--------------------------------------
 
 void
-Production::initRules(
+NonTerminal::initRules(
         size_t from_pos
 )
 {
         for (size_t count = size(); from_pos != count; ++from_pos) {
-                base_t::operator[](from_pos).production_ = this;
+                base_t::operator[](from_pos).nonterminal_ = this;
         }
 }
 
 //--------------------------------------
 
 auto
-Production::initTerminalsAndLL1(
+NonTerminal::initTerminalsAndLL1(
         std::set<const this_t *> &visited
 ) const -> InitTerminalsStatus
 {
@@ -667,7 +667,7 @@ Production::initTerminalsAndLL1(
 //--------------------------------------
 
 auto
-Production::initTerminalsAndLL1(
+NonTerminal::initTerminalsAndLL1(
         std::set<const this_t *> &visited,
         const Rule               &rule
 ) const -> InitTerminalsStatus
@@ -736,7 +736,7 @@ Production::initTerminalsAndLL1(
 //--------------------------------------
 
 void
-Production::updateTerminalsAndLL1(
+NonTerminal::updateTerminalsAndLL1(
         TokenKind   t,
         const Rule &rule
 ) const
@@ -749,7 +749,7 @@ Production::updateTerminalsAndLL1(
 //--------------------------------------
 
 WRPARSE_API void
-Production::dump(
+NonTerminal::dump(
         std::ostream &to,
         const Lexer  &lexer
 ) const
@@ -776,7 +776,7 @@ Production::dump(
 //--------------------------------------
 
 WRPARSE_API void
-Production::gdb(
+NonTerminal::gdb(
         const Lexer &lexer
 ) const
 {
@@ -787,7 +787,7 @@ Production::gdb(
 //--------------------------------------
 
 WRPARSE_API bool
-Production::removeAction(
+NonTerminal::removeAction(
         Action      target,
         ActionList &from
 ) // static
@@ -804,7 +804,7 @@ Production::removeAction(
 //--------------------------------------
 
 WRPARSE_API bool
-Production::invokeActions(
+NonTerminal::invokeActions(
         const ActionList &in,
         ParseState       &state
 ) // static

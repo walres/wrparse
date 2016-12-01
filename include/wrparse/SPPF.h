@@ -29,7 +29,7 @@
  *      made up of \i nodes - objects of the \c SPPFNode class - each of which
  *      details what part of the input token stream they were matched against
  *      (zero or more tokens), what point in the grammar they stem from (for
- *      packed / intermediate nodes), which parsed production or token type
+ *      packed / intermediate nodes), which parsed nonterminal or token type
  *      they refer to (for nonterminal or terminal symbol nodes), zero or more
  *      children plus any auxiliary data the user wishes to attach to them.
  *
@@ -37,12 +37,12 @@
  *
  *      \li <i>Symbol nodes</i> representing a matched terminal (one token of
  *              a given type) or a matched nonterminal (a set of zero or more
- *              tokens matched to a production). Terminal symbol nodes do not
- *              have child nodes. A symbol node is "labelled" with the terminal
- *              or nonterminal it matched along with the range of tokens it
- *              covers (which may be empty)
+ *              tokens). Terminal symbol nodes do not have child nodes. A
+ *              symbol node is "labelled" with the terminal or nonterminal it
+ *              matched along with the range of tokens it covers (which may
+ *              be empty)
  *      \li <i>Intermediate nodes</i> representing a partially-matched
- *              production; these nodes are a necessary part of "binarising"
+ *              nonterminal; these nodes are a necessary part of "binarising"
  *              the SPPF to ensure the GLL parsing algorithm is of cubic
  *              complexity at most. An intermediate node is "labelled" with
  *              a specific point in the grammar that it is associated with
@@ -187,20 +187,19 @@ struct IntrusivePtrListTraits
  * objects of the `SPPFNode` class - each of which details what part of the
  * input token stream they were matched against (zero or more tokens), what
  * part of the grammar they matched (for packed / intermediate nodes), which
- * parsed production or token type they refer to (for nonterminal or
+ * parsed nonterminal or token type they refer to (for nonterminal or
  * terminal symbol nodes), zero or more children plus any auxiliary data the
  * user attaches to them.
  *
  * SPPF nodes come in three basic incarnations:
  *
  * * *Symbol* nodes represent a matched terminal (one token of a given
- *      type) or a matched nonterminal (a set of zero or more tokens matched
- *      to a production). Terminal symbol nodes do not have child nodes. A
- *      symbol node is "labelled" with the terminal or nonterminal it
- *      matched along with the range of tokens it covers (which may be
- *      empty).
+ *      type) or a matched nonterminal (a set of zero or more tokens).
+ *      Terminal symbol nodes do not have child nodes. A symbol node is
+ *      "labelled" with the terminal or nonterminal it matched along with
+ *      the range of tokens it covers (which may be empty).
  *
- * * *Intermediate* nodes represent a partially-matched production. These
+ * * *Intermediate* nodes represent a partially-matched nonterminal. These
  *      nodes are a necessary part of "binarising" the SPPF to ensure the
  *      GLL parsing algorithm is of cubic complexity at most. An
  *      intermediate node is "labelled" with a specific point in the grammar
@@ -289,7 +288,7 @@ public:
         SPPFNode(this_t &&other);
 
         /// \brief Initialise a nonterminal symbol node
-        SPPFNode(const Production &nonterminal, Token *first_token,
+        SPPFNode(const NonTerminal &nonterminal, Token *first_token,
                  Token &last_token);
 
         /// \brief Initialise a nonempty terminal symbol node
@@ -473,17 +472,16 @@ public:
         Kind kind() const { return static_cast<Kind>(bits_ & 3); }
 
         /**
-         * \brief Obtain pointer to linked grammar production
+         * \brief Obtain pointer to linked nonterminal
          * \return For a nonterminal symbol node: a pointer to the
-         *      nonterminal `Production` object specified at initialisation
-         *      time
+         *      `NonTerminal` object specified at initialisation time
          * \return For a packed or intermediate node: a pointer to the
-         *      `Production` object which defines the `Rule` containing the
+         *      `NonTerminal` object which defines the `Rule` containing the
          *      grammar slot (`Component` object reference) specified at
          *      initialisation time
          * \return `nullptr` for terminal symbol node
          */
-        const Production *nonTerminal() const;
+        const NonTerminal *nonTerminal() const;
 
         /**
          * \brief Obtain token type of terminal symbol node
@@ -507,9 +505,9 @@ public:
         /**
          * \brief Obtain a hash code for this node
          *
-         * The hash code is generated from the node type, nonterminal
-         * production, grammar slot and matched token range. The list of
-         * children and auxiliary user data are not involved.
+         * The hash code is generated from the node type, nonterminal,
+         * grammar slot and matched token range. The list of children and
+         * auxiliary user data are not involved.
          */
         const size_t hash() const;
 
@@ -519,8 +517,7 @@ public:
          * Two nodes are considered equal iff:
          *
          * * they are both nonterminal symbol nodes, they both refer to
-         *   the same nonterminal production and match the same range of
-         *   input tokens
+         *   the same nonterminal and match the same range of input tokens
          * * they are both terminal symbol nodes and they both matched the
          *   same input token
          * * they are both packed symbol nodes, they both refer to the same
@@ -608,27 +605,27 @@ public:
 
         ///@{
         /**
-         * \brief Test whether this node,or any nonterminal descendant
-         *      matching the same range of tokens, matched the specified
-         *      production
-         * \param [in]  nonterminal  production to search for
+         * \brief Test whether this node, or any nonterminal descendant
+         *      matching the same range of tokens, matches the specified
+         *      nonterminal
+         * \param [in]  nonterminal  the nonterminal to search for
          * \param [out] out_pos      matching node, if found
          * \return `true` if any of the nodes searched matched
          *      `nonterminal`, `false` otherwise
          */
-        bool is(const Production &nonterminal) const;
-        bool is(const Production &nonterminal, Ptr &out_pos);
-        bool is(const Production &nonterminal, ConstPtr &out_pos) const;
+        bool is(const NonTerminal &nonterminal) const;
+        bool is(const NonTerminal &nonterminal, Ptr &out_pos);
+        bool is(const NonTerminal &nonterminal, ConstPtr &out_pos) const;
         ///@}
 
         ///@{
         /**
          * \brief Search the hierarchy below for the next nonterminal
-         *      symbol node that matched the specified production
+         *      symbol node that matched the specified nonterminal
          *
          * The search is limited to the depth specified by `max_depth`.
          *
-         * \param [in] nonterminal  production to search for
+         * \param [in] nonterminal  the nonterminal to search for
          * \param [in] max_depth
          *      depth limit, where each increment counts as one level of
          *      nonterminal descendancy, not one level in the SPPF.
@@ -637,9 +634,9 @@ public:
          *
          * \return Pointer to target node if found, `nullptr` otherwise
          */
-        Ptr find(const Production &nonterminal, int max_depth = -1);
+        Ptr find(const NonTerminal &nonterminal, int max_depth = -1);
 
-        ConstPtr find(const Production &nonterminal, int max_depth = -1) const
+        ConstPtr find(const NonTerminal &nonterminal, int max_depth = -1) const
             { return const_cast<this_t *>(this)->find(nonterminal, max_depth); }
         ///@}
 
@@ -671,9 +668,9 @@ private:
 
         union // stores kind in lowest two bits
         {
-                const Production *nonterminal_;  // for nonterminal symbol node
-                const Component  *slot_;  // for intermediate or packed node
-                uintptr_t         bits_;  // for easy access to low bits
+                const NonTerminal *nonterminal_;  // for nonterminal symbol node
+                const Component   *slot_;  // for intermediate or packed node
+                uintptr_t          bits_;  // for easy access to low bits
         };
 
         union // lowest bit signifies ownership of tokens if set

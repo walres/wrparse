@@ -102,10 +102,10 @@ enum : TokenFlags
  *
  * Tokens are chained together as a linked list by the `Parser` in the order
  * they were read. It is possible for a language's `Parser` implementation,
- * or parse actions registered with individual productions to modify the
- * original token stream but this must be done with great care and should be
- * avoided if possible. The `next()` functions are used to query or change
- * the links between tokens.
+ * or parse actions registered with nonterminals, to modify the input token
+ * stream but this must be done with great care and should be avoided if
+ * possible. The `next()` functions are used to query or change the links
+ * between tokens.
  */
 class WRPARSE_API Token
 {

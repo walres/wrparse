@@ -191,7 +191,7 @@ unsigned CalcLexer::lexDigits(std::string &spelling)
 /**
  * \brief the calculator parser
  *
- * Defines the productions, grammar and semantic actions for the language.
+ * Defines the nonterminals, grammar and semantic actions for the language.
  * The wr::parse::Parser base class provides the 'glue' to the lexer and the
  * public API to initiate parsing.
  */
@@ -200,12 +200,12 @@ class CalcParser : public wr::parse::Parser
 public:
         CalcParser(CalcLexer &lexer);  // set up grammar and semantic actions
 
-        // all productions
-        const wr::parse::Production primary_expr,
-                                    unary_expr,
-                                    unary_op,
-                                    arithmetic_expr,
-                                    multiply_expr;
+        // all nonterminals
+        const wr::parse::NonTerminal primary_expr,
+                                     unary_expr,
+                                     unary_op,
+                                     arithmetic_expr,
+                                     multiply_expr;
 
         /**
          * \brief result data calculated for and attached to each SPPF node
@@ -227,10 +227,11 @@ public:
 CalcParser::CalcParser(CalcLexer &lexer) :
         Parser(lexer),
 
-        // part one: grammar productions / rules
-        /* operator precedence is handled by using two separate productions:
-           one for + and -, the other for * and /, the latter taking
-           precedence in this case (similar to C-like languages) */
+        // part one: grammar nonterminals and rules
+        /* operator precedence is handled by using several linked nonterminals:
+           one for + and -, another for * and / plus another for literal
+           numbers and parenthesised subexpressions; the 'deeper' nonterminals
+           take higher precedence */
         arithmetic_expr { "arithmetic-expr", {
                 { multiply_expr },
                 { arithmetic_expr, TOK_PLUS, multiply_expr },
@@ -241,12 +242,12 @@ CalcParser::CalcParser(CalcLexer &lexer) :
                 { unary_expr },
                 { multiply_expr, TOK_MULTIPLY, unary_expr },
                 { multiply_expr, TOK_DIVIDE, unary_expr }
-        }, wr::parse::Production::HIDE_IF_DELEGATE },
+        }, wr::parse::NonTerminal::HIDE_IF_DELEGATE },
 
         unary_expr { "unary-expr", {
                 { primary_expr },
                 { unary_op, unary_expr }
-        }, wr::parse::Production::HIDE_IF_DELEGATE },
+        }, wr::parse::NonTerminal::HIDE_IF_DELEGATE },
 
         unary_op { "unary-op", {
                 { TOK_PLUS },
@@ -343,7 +344,7 @@ int main()
         CalcParser parser(lexer);
         int        status = EXIT_SUCCESS;
 
-        wr::parse::Production calc_input = { "calc-input", {
+        wr::parse::NonTerminal calc_input = { "calc-input", {
                 { parser.arithmetic_expr },
                 { TOK_NEWLINE },
                 { TOK_EOF }

@@ -63,9 +63,9 @@ SPPFNode::SPPFNode(
 
 WRPARSE_API
 SPPFNode::SPPFNode(
-        const Production &nonterminal,
-        Token            *first_token,
-        Token            &last_token
+        const NonTerminal &nonterminal,
+        Token             *first_token,
+        Token             &last_token
 ) :
         nonterminal_(&nonterminal),
         first_token_(first_token),
@@ -183,14 +183,14 @@ SPPFNode::operator=(
 
 //--------------------------------------
 
-WRPARSE_API const Production *
+WRPARSE_API const NonTerminal *
 SPPFNode::nonTerminal() const
 {
         switch (kind()) {
         case NONTERMINAL:
                 return nonterminal_;
         case INTERMEDIATE: case PACKED:
-                return rule()->production();
+                return rule()->nonTerminal();
         default: case TERMINAL:
                 return nullptr;
         }
@@ -392,7 +392,7 @@ SPPFNode::is(
 template <typename NodeT> inline bool
 sppfNodeIs(
         NodeT                       &node,
-        const Production            &nonterminal,
+        const NonTerminal           &nonterminal,
         boost::intrusive_ptr<NodeT> *out_pos
 )
 {
@@ -420,7 +420,7 @@ sppfNodeIs(
 
 WRPARSE_API bool
 SPPFNode::is(
-        const Production &nonterminal
+        const NonTerminal &nonterminal
 ) const
 {
         return sppfNodeIs<const this_t>(*this, nonterminal, nullptr);
@@ -430,8 +430,8 @@ SPPFNode::is(
 
 WRPARSE_API bool
 SPPFNode::is(
-        const Production &nonterminal,
-        Ptr              &out_pos
+        const NonTerminal &nonterminal,
+        Ptr               &out_pos
 )
 {
         return sppfNodeIs(*this, nonterminal, &out_pos);
@@ -441,8 +441,8 @@ SPPFNode::is(
 
 WRPARSE_API bool
 SPPFNode::is(
-        const Production &nonterminal,
-        ConstPtr         &out_pos
+        const NonTerminal &nonterminal,
+        ConstPtr          &out_pos
 ) const
 {
         return sppfNodeIs(*this, nonterminal, &out_pos);
@@ -452,8 +452,8 @@ SPPFNode::is(
 
 WRPARSE_API auto
 SPPFNode::find(
-        const Production &nonterminal,
-        int               max_depth
+        const NonTerminal &nonterminal,
+        int                max_depth
 ) -> Ptr
 {
         Ptr found;

@@ -44,7 +44,7 @@ namespace parse {
 class Lexer;       // see Lexer.h
 class ParseState;  // see Parser.h
 class Rule;        // see below
-class Production;  // see below
+class NonTerminal; // see below
 
 /**
  * \brief Grammar rule component data type
@@ -79,7 +79,7 @@ public:
         explicit Component(TokenKind terminal, bool is_optional = false,
                            Predicate predicate = nullptr);
 
-        Component(const Production &nonterminal, bool is_optional = false,
+        Component(const NonTerminal &nonterminal, bool is_optional = false,
                   Predicate predicate = nullptr);
 
         Component(Predicate predicate);
@@ -101,7 +101,7 @@ public:
         TokenKind getAsTerminal() const
                 { return isTerminal() ? terminal_ : TOK_NULL; }
 
-        const Production *getAsNonTerminal() const
+        const NonTerminal *getAsNonTerminal() const
                 { return isTerminal() ? nullptr : nonterminal_; }
 
         bool operator==(const this_t &other) const;
@@ -115,8 +115,8 @@ private:
         friend Rule;
         union
         {
-                TokenKind         terminal_;
-                const Production *nonterminal_;
+                TokenKind          terminal_;
+                const NonTerminal *nonterminal_;
         };
         Predicate  predicate_;
         Rule      *rule_;
@@ -150,7 +150,7 @@ public:
         this_t &operator=(const this_t &other);
         this_t &operator=(this_t &&other);
 
-        const Production *production() const { return production_; }
+        const NonTerminal *nonTerminal() const { return nonterminal_; }
 
         int index() const;
         int indexOf(const Component &c) const;
@@ -180,7 +180,7 @@ public:
         bool operator!=(const this_t &rhs) const { return this != &rhs; }
 
 private:
-        friend Production;
+        friend NonTerminal;
 
         using iterator = base_t::iterator;
 
@@ -189,8 +189,8 @@ private:
 
         void updateComponents();
 
-        const Production *production_;
-        bool              enabled_ : 1;
+        const NonTerminal *nonterminal_;
+        bool               enabled_ : 1;
 };
 
 static_assert(alignof(Rule) >= 4, "Rule requires alignment of 4 or more");
@@ -200,19 +200,19 @@ using RuleIndices = circ_fwd_list<size_t>;
 
 //--------------------------------------
 /**
- * \brief Grammar production data type
+ * \brief Grammar nonterminal data type
  *
- * Productions are the primary element of all grammars. They represent a named
- * set of one or more rules, specifiable as nonterminal rule components and
- * are used as the starting point for a parsing operation.
+ * Nonterminals represent a named set of one or more rules and may be
+ * specified as components of any rule, as well as being specifiable as
+ * the point of entry for a parsing operation.
  *
  * \see class `Rule`, class `Component`
  */
-class WRPARSE_API Production :
+class WRPARSE_API NonTerminal :
         std::vector<Rule>
 {
 public:
-        using this_t = Production;
+        using this_t = NonTerminal;
         using base_t = std::vector<Rule>;
         using const_iterator = base_t::const_iterator;
 
@@ -239,17 +239,17 @@ public:
 
         using Action = bool (*)(ParseState &);
 
-        Production();
-        Production(const this_t &other);
-        Production(this_t &&other);
-        Production(const char * const name) : this_t(name, true, {}, 0) {}
-        Production(const char * const name, bool enable, Rules rules,
-                   Flags flags = {});
+        NonTerminal();
+        NonTerminal(const this_t &other);
+        NonTerminal(this_t &&other);
+        NonTerminal(const char * const name) : this_t(name, true, {}, 0) {}
+        NonTerminal(const char * const name, bool enable, Rules rules,
+                    Flags flags = {});
 
-        Production(const char * const name, Rules rules, Flags flags = {}) :
+        NonTerminal(const char * const name, Rules rules, Flags flags = {}) :
                 this_t(name, true, std::move(rules), flags) {}
 
-        ~Production() = default;
+        ~NonTerminal() = default;
 
         this_t &operator=(const this_t &other);
         this_t &operator=(this_t &&other);
@@ -338,21 +338,21 @@ private:
                            post_parse_actions_;
 };
 
-static_assert(alignof(Production) >= 4,
-              "Production requires alignment of 4 or more");
+static_assert(alignof(NonTerminal) >= 4,
+              "NonTerminal requires alignment of 4 or more");
 
 //--------------------------------------
 
 inline Component opt(TokenKind terminal)
         { return Component(terminal, true); }
 
-inline Component opt(const Production &nonterminal)
+inline Component opt(const NonTerminal &nonterminal)
         { return Component(nonterminal, true); }
 
 inline Component pred(TokenKind terminal, Component::Predicate predicate)
         { return Component(terminal, false, predicate); }
 
-inline Component pred(const Production &nonterminal,
+inline Component pred(const NonTerminal &nonterminal,
                       Component::Predicate predicate)
         { return Component(nonterminal, false, predicate); }
 
