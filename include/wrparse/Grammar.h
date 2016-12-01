@@ -276,9 +276,9 @@ public:
         const Rule &front() const { return base_t::front(); }
         const Rule &back() const  { return base_t::back(); }
 
-        using Terminals = std::map<TokenKind, RuleIndices>;
+        using FirstSet = std::map<TokenKind, RuleIndices>;
 
-        const Terminals &initialTerminals() const;
+        const FirstSet &firstSet() const;
 
         bool operator==(const this_t &rhs) const { return this == &rhs; }
         bool operator!=(const this_t &rhs) const { return this != &rhs; }
@@ -302,16 +302,14 @@ public:
 private:
         void initRules(size_t from_pos = 0);
 
-        enum class InitTerminalsStatus { OK, IS_LR, INDETERMINATE };
+        enum class InitStatus { OK, IS_LR, INDETERMINATE };
 
-        InitTerminalsStatus initTerminalsAndLL1(
-                        std::set<const this_t *> &visited) const;
+        InitStatus initFirstAndLL1(std::set<const this_t *> &visited) const;
 
-        InitTerminalsStatus initTerminalsAndLL1(
-                        std::set<const this_t *> &visited,
-                        const Rule &rule) const;
+        InitStatus initFirstAndLL1(std::set<const this_t *> &visited,
+                                   const Rule &rule) const;
 
-        void updateTerminalsAndLL1(TokenKind t, const Rule &rule) const;
+        void updateFirstAndLL1(TokenKind t, const Rule &rule) const;
 
         using ActionList = circ_fwd_list<Action>;
 
@@ -319,17 +317,17 @@ private:
         static bool invokeActions(const ActionList &in, ParseState &state);
 
 
-        const char *      name_;
-        mutable Terminals initial_terminals_;
+        const char *     name_;
+        mutable FirstSet first_;
 
         union {
                 struct {
-                        mutable bool got_initial_terminals_ : 1,
-                                     is_ll1_                : 1,
-                                     matches_empty_         : 1;
-                        bool         is_transparent_        : 1,
-                                     hide_if_delegate_      : 1,
-                                     keep_recursion_        : 1;
+                        mutable bool got_first_set_    : 1,
+                                     is_ll1_           : 1,
+                                     matches_empty_    : 1,
+                                     is_transparent_   : 1,
+                                     hide_if_delegate_ : 1,
+                                     keep_recursion_   : 1;
                 };
                 uint8_t flags_;
         };

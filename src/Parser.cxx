@@ -474,7 +474,7 @@ Parser::GLL::beginNonTerminal(
         unsigned short     depth
 )
 {
-        auto   &terminals = nonterminal.initialTerminals();
+        auto   &terminals = nonterminal.firstSet();
         size_t  count = 0;
 
         if (terminals.empty()) {
@@ -761,8 +761,8 @@ Parser::GLL::test(
         GrammarAddress     trailing_terms
 ) const
 {
-        return nonterminal.initialTerminals().empty()
-                || nonterminal.initialTerminals().count(input_pos->kind())
+        return nonterminal.firstSet().empty()
+                || nonterminal.firstSet().count(input_pos->kind())
                 || (nonterminal.matchesEmpty()
                         && testFollow(input_pos, trailing_terms));
 }
