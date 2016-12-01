@@ -1,6 +1,7 @@
 #include <string>
 
 #include <wrutil/ctype.h>
+#include <wrutil/Format.h>
 #include <wrutil/numeric_cast.h>
 #include <wrutil/uiostream.h>
 
@@ -31,8 +32,7 @@ enum : wr::parse::TokenKind
         TOK_LPAREN,
         TOK_RPAREN,
         TOK_NUMBER,
-        TOK_NEWLINE,
-        TOK_UNKNOWN
+        TOK_NEWLINE
 };
 
 //--------------------------------------
@@ -47,55 +47,36 @@ class CalcLexer : public wr::parse::Lexer
 public:
         using base_t = wr::parse::Lexer;
 
-        CalcLexer(std::istream &input);
+        CalcLexer(std::istream &input) : base_t(input) {}
 
         // core Lexer interface
-        virtual wr::parse::Token &lex(wr::parse::Token &out_token);
+        virtual wr::parse::Token &lex(wr::parse::Token &out_token) override;
+        virtual const char *tokenKindName(wr::parse::TokenKind kind) const
+                override;
 
 private:
         void lexNumber(wr::parse::Token &out_token);
                                         // helper function for lex()
         unsigned lexDigits(std::string &spelling);
                                         // helper function for lexNumber()
-
-        void error(const wr::u8string_view &message)
-        {
-                wr::uerr << "error at line " << line() << " column " << column()
-                         << ": " << message << '\n';
-        }
-
-        wr::parse::TokenFlags next_token_flags_;
 };
-
-
-CalcLexer::CalcLexer(std::istream &input) :
-        base_t           (input),
-        next_token_flags_(wr::parse::TF_STARTS_LINE)
-{
-}
 
 
 wr::parse::Token &CalcLexer::lex(wr::parse::Token &out_token)
 {
-        out_token.reset();  /* resets token's type to wr::parse::TOK_NULL,
-                               offset and length zero and empty spelling */
-        out_token.setOffset(
-                wr::numeric_cast<wr::parse::Token::Offset>(offset()));
-
-        char32_t c = read();
+        char32_t c = peek();  // use peek() prior to calling base's lex()
 
         while ((c != U'\n') && (c != eof) && wr::isuspace(c)) {
-                next_token_flags_ |= wr::parse::TF_SPACE_BEFORE;
-                c = read();
+                read();  // eat whitespace updating flags, column number etc.
+                c = peek();
         }
 
-        out_token.setFlags(next_token_flags_);
-        next_token_flags_ = 0;
+        base_t::lex(out_token);  // initialise out_token
+        read();  // consume character obtained by peek() above
 
         switch (c) {
         case U'\n':
                 out_token.setKind(TOK_NEWLINE).setSpelling("\n");
-                next_token_flags_ |= wr::parse::TF_STARTS_LINE;
                 break;
         case base_t::eof:  out_token.setKind(TOK_EOF); break;
         case U'+': out_token.setKind(TOK_PLUS).setSpelling("+"); break;
@@ -114,12 +95,37 @@ wr::parse::Token &CalcLexer::lex(wr::parse::Token &out_token)
                 if (wr::isudigit(c)) {
                         lexNumber(out_token);
                 } else {
-                        out_token.setKind(TOK_UNKNOWN).setSpelling("\0");
+                        const char *msg;
+                        if (c < 0x80) {
+                                msg = "Illegal character '%c'";
+                        } else {
+                                msg = "Illegal character '\\u%.4x'";
+                        }
+                        emit(wr::parse::Diagnostic::ERROR,
+                             wr::utf8_seq_size(c), msg, c);
                 }
                 break;
         }
 
         return out_token;
+}
+
+
+const char *CalcLexer::tokenKindName(wr::parse::TokenKind kind) const
+{
+        switch (kind) {
+        default: case TOK_NULL: case TOK_EOF:
+                return base_t::tokenKindName(kind);
+
+        case TOK_PLUS:     return "+";
+        case TOK_MINUS:    return "-";
+        case TOK_MULTIPLY: return "*";
+        case TOK_DIVIDE:   return "/";
+        case TOK_LPAREN:   return "(";
+        case TOK_RPAREN:   return ")";
+        case TOK_NUMBER:   return "number";
+        case TOK_NEWLINE:  return "newline";
+        }
 }
 
 
@@ -136,7 +142,8 @@ void CalcLexer::lexNumber(wr::parse::Token &out_token)
                 }
         } else if (!wr::isudigit(peek())) {
                 // syntax error - must be at least one digit either side of '.'
-                error("expected number after '.'");
+                emit(wr::parse::Diagnostic::ERROR, out_token.bytes(),
+                        "expected digit(s) before or after '.'");
                 return;
         }
 
@@ -231,19 +238,19 @@ CalcParser::CalcParser(CalcLexer &lexer) :
         /* operator precedence is handled by using two separate productions:
            one for + and -, the other for * and /, the latter taking
            precedence in this case (similar to C-like languages) */
-        arithmetic_expr { "arithmetic-expr", {
+        arithmetic_expr { "arithmetic-expression", {
                 { multiply_expr },
                 { arithmetic_expr, TOK_PLUS, multiply_expr },
                 { arithmetic_expr, TOK_MINUS, multiply_expr },
         }},
 
-        multiply_expr { "multiply-expr", {
+        multiply_expr { "multiply-expression", {
                 { unary_expr },
                 { multiply_expr, TOK_MULTIPLY, unary_expr },
                 { multiply_expr, TOK_DIVIDE, unary_expr }
         }, wr::parse::Production::HIDE_IF_DELEGATE },
 
-        unary_expr { "unary-expr", {
+        unary_expr { "unary-expression", {
                 { primary_expr },
                 { unary_op, unary_expr }
         }, wr::parse::Production::HIDE_IF_DELEGATE },
@@ -253,7 +260,7 @@ CalcParser::CalcParser(CalcLexer &lexer) :
                 { TOK_MINUS }
         }},
 
-        primary_expr { "primary-expr", {
+        primary_expr { "primary-expression", {
                 { TOK_NUMBER },
                 { TOK_LPAREN, arithmetic_expr, TOK_RPAREN }
         }}
@@ -339,12 +346,24 @@ CalcParser::CalcParser(CalcLexer &lexer) :
 
 int main()
 {
+        struct DiagnosticPrinter : public wr::parse::DiagnosticHandler
+        {
+                virtual void onDiagnostic(const wr::parse::Diagnostic &d)
+                        override
+                {
+                        wr::print(wr::uerr, "%s: %s at column %u\n",
+                                  d.describeCategory(), d.text(), d.column());
+                }
+        } diag_out;
+
         CalcLexer  lexer (wr::uin);
         CalcParser parser(lexer);
         int        status = EXIT_SUCCESS;
 
+        parser.addDiagnosticHandler(diag_out);
+
         wr::parse::Production calc_input = { "calc-input", {
-                { parser.arithmetic_expr },
+                { parser.arithmetic_expr, TOK_NEWLINE },
                 { TOK_NEWLINE },
                 { TOK_EOF }
         }};
@@ -352,8 +371,10 @@ int main()
         while (wr::uin.good() && !parser.nextToken()->is(TOK_EOF)) {
                 wr::parse::SPPFNode::Ptr result = parser.parse(calc_input);
 
-                if (!result) {
-                        wr::uerr << "parse failed" << std::endl;
+                if (!result || parser.errorCount()) {
+                        if (!parser.errorCount()) {
+                                wr::uerr << "parse failed" << std::endl;
+                        }
                         status = EXIT_FAILURE;
                         parser.reset();  // clear any remaining tokens
                 } else {

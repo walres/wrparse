@@ -25,6 +25,7 @@
 #include <assert.h>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <set>
 #include <stdexcept>
 #include <vector>
@@ -203,7 +204,7 @@ class Parser::GLL
 {
 public:
         GLL(Parser &parser, const Production &start) :
-                parser_(parser), start_(start) {}
+                parser_(parser), start_(start), recovery_pos_(nullptr) {}
 
         SPPFNode::Ptr parseMain(Token *input_start);
 
@@ -270,12 +271,29 @@ private:
                 };
         };
 
+        struct Mismatch
+        {
+                enum Kind : uint8_t
+                {
+                        NONE = 0,
+                        NO_RULE,
+                        TERMINAL_MISMATCH,
+                        PREDICATE_FAILED,
+                        POST_ACTION_FAILED
+                };
+
+                Descriptor d;
+                Kind       kind;
+        };
+
+        using Mismatches = circ_fwd_list<Mismatch>;
         using VisitedItems = std::unordered_set<VisitedItem, VisitedItem::Hash>;
         using SPPFNodes = std::unordered_set<SPPFNode::Ptr, SPPFNode::Hash,
                                              SPPFNode::IndirectEqual>;
 
 
         const Production &getProduction(const Descriptor &d) const;
+        void report(const Mismatch &err);
 
         bool beginNonTerminal(const Production &nonterminal,
                               const GSS::Node *gss_head,
@@ -285,7 +303,9 @@ private:
                        Token *input_pos, unsigned short depth, bool immediate);
 
         void parse(Descriptor &d);
-        bool endRule(Descriptor &d, bool ok);
+
+        bool endRule(Descriptor &d,
+                     Mismatch::Kind mismatch_kind = Mismatch::NONE);
 
         bool visited(GrammarAddress address, const GSS::Node *gss_head,
                      Token *input_pos, SPPFNode::ConstPtr sppf_node) const;
@@ -327,6 +347,8 @@ private:
         PoppedSet         popped_;       // P in GLL paper
         DescriptorStack   in_progress_;  // R in GLL paper
         VisitedItems      visited_;      // U in GLL paper
+        const Token      *recovery_pos_;
+        Mismatches        poss_errors_;
 };
 
 //--------------------------------------
@@ -446,7 +468,13 @@ Parser::GLL::parseMain(
                         *u0 = gss_.emplace().first;
 
         u1->addChild(*u0, nullptr);
-        beginNonTerminal(start_, u1, input_start, 0);
+        if (!beginNonTerminal(start_, u1, input_start, 0)) {
+                recovery_pos_ = input_start;
+                poss_errors_.push_front(Mismatch {
+                        { nullptr, u1, input_start, nullptr, 0, false },
+                        Mismatch::NO_RULE
+                });
+        }
 
         /*
          * L0: main parsing loop
@@ -457,8 +485,80 @@ Parser::GLL::parseMain(
                 parse(d);
         }
 
+        if (!matched_ && recovery_pos_ && !poss_errors_.empty()) {
+                report(poss_errors_.front());
+                poss_errors_.pop_front();
+
+                /* TODO: re-synchronise input token stream from recovery_pos_
+                         and re-enter main loop */
+        }
+
         sppf_nodes_.clear();
         return std::move(matched_);
+}
+
+//--------------------------------------
+
+void
+Parser::GLL::report(
+        const Mismatch &err
+)
+{
+        std::set<TokenKind>  expected_terminals;
+        const Production    *nonterm = nullptr;
+
+        switch (err.kind) {
+        default: case Mismatch::NONE:  // unexpected
+        case Mismatch::PREDICATE_FAILED:  // semantic error
+        case Mismatch::POST_ACTION_FAILED:  // ditto
+                return;
+        case Mismatch::NO_RULE:
+                if (err.d.address_) {
+                        nonterm = err.d.address_->getAsNonTerminal();
+                } else {
+                        nonterm = &start_;
+                }
+                for (auto term: nonterm->initialTerminals()) {
+                        if (term.first != TOK_EOF) {
+                                expected_terminals.insert(term.first);
+                        }
+                }
+                break;
+        case Mismatch::TERMINAL_MISMATCH:
+                expected_terminals.insert(err.d.address_
+                                                ->getAsTerminal());
+                break;
+        }
+
+        size_t       count = expected_terminals.size();
+        std::string  expect;
+        const char  *sep = "";
+
+        for (const auto &term: expected_terminals) {
+                expect += sep;
+                u8string_view term_name
+                                = parser_.lexer()->tokenKindName(term);
+
+                if (term_name.size() == 1) {
+                        expect += "'";
+                        if (term_name == "'") {
+                                expect += "\\";
+                        }
+                        expect += term_name.char_data();
+                        expect += "'";
+                } else {
+                        expect += term_name.char_data();
+                }
+
+                if (--count > 1) {
+                        sep = ", ";
+                } else {
+                        sep = " or ";
+                }
+        }
+
+        parser_.emit({ Diagnostic::ERROR, *recovery_pos_,
+                       "expected %s", expect });
 }
 
 //--------------------------------------
@@ -605,7 +705,7 @@ Parser::GLL::parse(
                         bool result = d.address_->predicate()(state);
 
                         if (!result && !d.address_->isOptional()) {
-                                endRule(d, false);  // failed
+                                endRule(d, Mismatch::PREDICATE_FAILED);
                                 return;
                         }
                 }
@@ -628,7 +728,7 @@ Parser::GLL::parse(
                                 }
                                 d.advance_ = true;
                         } else if (!step.isOptional()) {
-                                endRule(d, false);  // failed
+                                endRule(d, Mismatch::TERMINAL_MISMATCH);
                                 return;
                         } else {
                                 d.sppf_node_ = getNodeP(d.address_,
@@ -665,7 +765,7 @@ Parser::GLL::parse(
                         ok = ok || skip_optional;
 
                         if (!ok) {
-                                endRule(d, false);  // failed
+                                endRule(d, Mismatch::NO_RULE);
                                 return;
                         }
 
@@ -682,7 +782,7 @@ Parser::GLL::parse(
         }
 
         if (d.address_ == rule.end()) {  // complete
-                if (endRule(d, true)) {
+                if (endRule(d)) {
                         pop(d.gss_head_, d.sppf_node_, d.depth_);
                 }
         }
@@ -692,8 +792,8 @@ Parser::GLL::parse(
 
 bool
 Parser::GLL::endRule(
-        Descriptor &d,
-        bool        ok
+        Descriptor     &d,
+        Mismatch::Kind  mismatch_kind
 )
 {
         assert(d.address_);
@@ -701,12 +801,21 @@ Parser::GLL::endRule(
         const char *dbg_prefix = nullptr;
         const Rule &rule       = *d.address_->rule();
 
-        if (ok) {
+        if (!mismatch_kind) {
                 ParseState state(parser_, start_, rule, d.input_pos_,
                                  d.sppf_node_);
                 if (!rule.production()->invokePostParseActions(state)) {
-                        ok = false;
+                        mismatch_kind = Mismatch::POST_ACTION_FAILED;
                         dbg_prefix = "XCFAIL ";
+                }
+        }
+
+        if (mismatch_kind) {
+                if (!recovery_pos_ ||
+                          (d.input_pos_->offset() >= recovery_pos_->offset())) {
+                        recovery_pos_ = d.input_pos_;
+                        poss_errors_.emplace_front(
+                                                Mismatch { d, mismatch_kind });
                 }
         }
 
@@ -717,7 +826,7 @@ Parser::GLL::endRule(
                      i_comp      = rule.indexOf(*d.address_);
                 auto offset      = d.input_pos_->offset();
 
-                if (ok) {
+                if (!mismatch_kind) {
                         dbg_prefix = "FINISH ";
                         offset = d.sppf_node_->endOffset();
                 } else if (!dbg_prefix) {
@@ -735,9 +844,8 @@ Parser::GLL::endRule(
                 ulog << " @ " << offset << std::endl;
         }
 
-        return ok;
+        return !mismatch_kind;
 }
-
 //--------------------------------------
 
 bool
@@ -1092,8 +1200,9 @@ Parser::GLL::getEmptyNodeAt(
  */
 WRPARSE_API
 Parser::Parser() :
-        lexer_(nullptr),
-        debug_(false)
+        lexer_      (nullptr),
+        debug_      (false),
+        error_limit_(DEFAULT_ERROR_LIMIT)
 {
 }
 
@@ -1107,12 +1216,18 @@ Parser::Parser(
 ) :
         Parser()
 {
-        lexer_ = &lexer;
+        setLexer(lexer);
 }
 
 //--------------------------------------
 
-WRPARSE_API Parser::~Parser() = default;
+WRPARSE_API
+Parser::~Parser()
+{
+        if (lexer_) {
+                lexer_->removeDiagnosticHandler(*this);
+        }
+}
 
 //--------------------------------------
 
@@ -1121,7 +1236,13 @@ Parser::setLexer(
         Lexer &lexer
 )
 {
-        lexer_ = &lexer;
+        if (lexer_ != &lexer) {
+                if (lexer_) {
+                        lexer_->removeDiagnosticHandler(*this);
+                }
+                lexer_ = &lexer;
+                lexer_->addDiagnosticHandler(*this);
+        }
         return *this;
 }
 
@@ -1145,7 +1266,11 @@ Parser::nextToken(
 
         if (tokens_.empty() || (pos == static_cast<Token *>(tokens_.last()))) {
                 next = tokens_.emplace_back().node();
-                lexer_->lex(*next);
+                while (lexer_->lex(*next).is(TOK_NULL)) {
+                        if (fatalErrorCount()) {
+                                throw FatalError();
+                        }
+                }
         } else if (pos) {
                 next = const_cast<Token *>(pos)->next();
         } else {
@@ -1169,6 +1294,7 @@ WRPARSE_API Parser &
 Parser::reset()
 {
         tokens_.clear();
+        DiagnosticCounter::reset();
         return *this;
 }
 
@@ -1189,11 +1315,13 @@ WRPARSE_API SPPFNode::Ptr
 Parser::parse(
         const Production &start
 )
-{
+try {
         if (!lexer_) {
                 throw std::logic_error("Parser::parse(): no lexer set\n");
         } else if (start.empty()) {
                 return nullptr;
+        } else if (fatalErrorCount()) {
+                throw FatalError();
         }
 
         GLL gll(*this, start);
@@ -1234,6 +1362,38 @@ Parser::parse(
         }
 
         return result;
+} catch (const FatalError &) {
+        return nullptr;
+}
+
+//--------------------------------------
+
+WRPARSE_API void
+Parser::onDiagnostic(
+        const Diagnostic &d
+)
+{
+        DiagnosticCounter::onDiagnostic(d);
+        DiagnosticEmitter::emit(d);
+
+        if (d.category() >= Diagnostic::ERROR) {
+                if (errorCount() == error_limit_) {
+                        onDiagnostic({ Diagnostic::FATAL_ERROR, d.offset(),
+                                       d.bytes(), d.line(), d.column(),
+                                       "error limit (%u) reached, aborting",
+                                       error_limit_ });
+                }
+        }
+}
+
+//--------------------------------------
+
+WRPARSE_API void
+Parser::setErrorLimit(
+        size_t limit
+)
+{
+        error_limit_ = limit;
 }
 
 //--------------------------------------
@@ -1262,3 +1422,46 @@ WRPARSE_API ParseState::~ParseState() = default;
 
 } // namespace parse
 } // namespace wr
+
+/*
+
+Error handling?
+
+Lexer Errors
+        1. Parser requests next token from Lexer, if successful then continue
+                as normal skipping the steps below
+        2. On error, Lexer reports the error location and message back to
+                Parser, which passes it to client MessageHandler. Lexer records
+                error position, if position equals previous error position then
+                Lexer emits additional fatal error.
+        3. For each error reported by Lexer during request for next token,
+                Parser receives a call back from Lexer in which Parser
+                increments error count; if error is not fatal but updated error
+                count is greater than configured maximum then Parser emits
+                fatal error to client MessageHandler
+        4. Lexer returns token of type TOK_NULL to Parser; if any fatal errors
+                were emitted then Parser stops
+        5. Go back to step 1
+
+Parser Errors
+        Situation 1: No initial match upon beginning parse of non-optional
+                     nonterminal
+
+        Situation 2: Initial matches made upon beginning parse of non-optional
+                     nonterminal, but all invoked pre-parse actions returned
+                     false
+
+        Situation 3: Non-optional terminal did not match while parsing rule
+
+        Situation 4: Predicate function returned false on non-optional
+                     empty (TOK_NULL) component
+
+        Situation 5: Predicate function returned false before attempting to
+                     match non-optional terminal
+
+        Situation 6: Predicate function returned false before attempting to
+                     match non-optional nonterminal
+
+        Situation 7: Rule completely matched but post-parse action
+                     returned false
+*/

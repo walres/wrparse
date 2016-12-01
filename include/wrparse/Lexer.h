@@ -31,6 +31,7 @@
 #include <wrutil/u8string_view.h>
 #include <wrutil/uiostream.h>
 #include <wrparse/Config.h>
+#include <wrparse/Diagnostics.h>
 #include <wrparse/Token.h>
 
 
@@ -113,9 +114,10 @@ namespace parse {
  *
  * \see class `Token`
  */
-class WRPARSE_API Lexer
+class WRPARSE_API Lexer : protected DiagnosticEmitter
 {
 public:
+        using base_t = DiagnosticEmitter;
         using this_t = Lexer;
 
         /// shorthand for character constant representing end-of-file
@@ -133,7 +135,7 @@ public:
          *      outlive `input` but the stream buffer as returned by
          *      `input.rdbuf()` must outlive both `input` and the lexer.
          */
-        Lexer(std::istream &input, int line = 1, int column = 0);
+        Lexer(std::istream &input, Line line = 1, Column column = 0);
 
         /**
          * \brief Initialise a `Lexer` object
@@ -144,7 +146,7 @@ public:
          * \param [in] line    starting line number
          * \param [in] column  starting column number
          */
-        Lexer(int line = 1, int column = 0);
+        Lexer(Line line = 1, Column column = 0);
 
         Lexer(const this_t &) = delete;
                 ///< \details Copying of `Lexer` objects is prohibited.
@@ -162,7 +164,11 @@ public:
          * \brief Read next token from input
          *
          * This method must be implemented by an language-specific derived
-         * class.
+         * class. The base `Lexer::lex()` has an implementation that derived
+         * classes can invoke having the following effects on `out_token`:
+         *      1. Resets all values to defaults by calling `Token::reset()`
+         *      2. Sets line number, column number and offset
+         *      3. Sets TF_SPACE_BEFORE and TF_STARTS_LINE flags if appropriate
          *
          * \param [out] out_token
          *      the output `Token` object; initial contents are undefined
@@ -183,13 +189,13 @@ public:
          *
          * \return `"NULL"` and `"EOF"` respectively for the generic token
          *      types `TOK_NULL` and `TOK_EOF`
-         * \return `"?"` for all other values
+         * \return `"unknown"` for all other values
          */
         virtual const char *tokenKindName(TokenKind kind) const;
 
-        int line() const              { return line_; }
+        Line line() const             { return line_; }
                         ///< \brief Obtain the current line number
-        int column() const            { return column_; }
+        Column column() const         { return column_; }
                         ///< \brief Obtain the current column number
         std::streamoff offset() const { return offset_; }
                         /**< \brief Obtain number of bytes read from
@@ -216,7 +222,7 @@ public:
          *      outlive `input` but the stream buffer as returned by
          *      `input.rdbuf()` must outlive both `input` and the lexer.
          */
-        this_t &reset(std::istream &input, int line = 1, int column = 0);
+        this_t &reset(std::istream &input, Line line = 1, Column column = 0);
 
         /**
          * \brief Reset lexer to offset zero and clear history buffer
@@ -234,7 +240,7 @@ public:
          *
          * \return reference to `*this` object
          */
-        this_t &reset(int line = 1, int column = 0)
+        this_t &reset(Line line = 1, Column column = 0)
                 { return reset(input_, line, column); }
 
         this_t &operator=(const this_t &) = delete;
@@ -256,6 +262,21 @@ public:
          *      are finished with before invoking this method.
          */
         virtual this_t &clearStorage();
+
+        /**
+         * \brief Add receiver of diagnostic messages
+         * \param [in] handler  reference to receiver object
+         */
+        void addDiagnosticHandler(DiagnosticHandler &handler)
+                { base_t::addDiagnosticHandler(handler); }
+
+        /**
+         * \brief Remove a receiver of diagnostic messages
+         * \param [in] handler  reference to receiver object to be removed
+         * \return `true` if successfully removed, `false` if not found
+         */
+        bool removeDiagnosticHandler(DiagnosticHandler &handler)
+                { return base_t::removeDiagnosticHandler(handler); }
 
 protected:
         /**
@@ -298,11 +319,11 @@ protected:
          * \name Functions for integrating generated lexers
          */
         ///@{
-        void setLine(int line)                { line_ = line; }
+        void setLine(Line line)               { line_ = line; }
                 ///< \brief Set current line number to `line`
         void bumpLine(int delta)              { line_ += delta; }
                 ///< \brief Adjust current line number by `delta`
-        void setColumn(int column)            { column_ = column; }
+        void setColumn(Column column)         { column_ = column; }
                 ///< \brief Set current column number to `column`
         void bumpColumn(int delta)            { column_ += delta; }
                 ///< \brief Adjust current column number by `delta`
@@ -311,6 +332,27 @@ protected:
         void bumpOffset(std::streamoff delta) { offset_ += delta; }
                 ///< \brief Adjust current input offset by `delta`
         ///@}
+
+        /**
+         * \brief Emit diagnostic message
+         * \param [in] category  message severity
+         * \param [in] length    length in bytes of related input sequence
+         * \param [in] fmt       format string
+         * \param [in] args  zero or more arguments to be formatted into message
+         */
+        template <typename ...Args>
+        void emit(Diagnostic::Category category, unsigned int length,
+                  const char *fmt, Args ...args)
+        {
+                if (!base_t::empty()) {
+                        base_t::emit({ category, offset_, length, line_,
+                                       column_, fmt,
+                                       std::forward<Args>(args)... });
+                }
+        }
+
+        /// \brief Emit diagnostic message `d`
+        void emit(const Diagnostic &d) { base_t::emit(d); }
 
         /**
          * \name Functions for handwritten lexers
@@ -374,8 +416,7 @@ protected:
 
 private:
         Lexer(nullptr_t);  /* dummy delegate constructor to ensure vtable
-                              is set inside bodies of other constructors */
-
+                              is set upon first call to onReset() */
         enum : short
         {
                 HISTORY_SIZE = 16
@@ -387,6 +428,7 @@ private:
                 uint8_t  bytes,  ///< no. of bytes taken by this character
                          lines;  ///< no. of lines to next character
                 int16_t  columns;   ///< no. of columns taken by this character
+                TokenFlags flags;  ///< next_token_flags_ set at this position
         };
 
         History doRead();
@@ -398,8 +440,10 @@ private:
         using StorageBufsIter = StorageBufs::iterator;
 
         std::istream    input_;
-        int             line_, column_;
+        Line            line_;
+        Column          column_;
         std::streamoff  offset_;
+        TokenFlags      next_token_flags_;
         History         history_[HISTORY_SIZE];  ///< backtracking ring buffer
         short           hist_begin_, hist_pos_, hist_end_;
         StorageBufs     storage_;

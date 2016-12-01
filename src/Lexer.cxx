@@ -39,14 +39,15 @@ WRPARSE_API
 Lexer::Lexer(
         nullptr_t
 ) :
-        input_         (nullptr),
-        line_          (0),
-        column_        (0),
-        offset_        (0),
-        hist_begin_    (0),
-        hist_pos_      (-1),
-        hist_end_      (-1),
-        first_free_buf_(storage_.end())
+        input_           (nullptr),
+        line_            (0),
+        column_          (0),
+        offset_          (0),
+        next_token_flags_(TF_STARTS_LINE),
+        hist_begin_      (0),
+        hist_pos_        (-1),
+        hist_end_        (-1),
+        first_free_buf_  (storage_.end())
 {
 }
 
@@ -54,8 +55,8 @@ Lexer::Lexer(
 
 WRPARSE_API
 Lexer::Lexer(
-        int line,
-        int column
+        Line   line,
+        Column column
 ) :
         this_t(uin, line, column)
 {
@@ -66,8 +67,8 @@ Lexer::Lexer(
 WRPARSE_API
 Lexer::Lexer(
         std::istream &input,
-        int           line,
-        int           column
+        Line          line,
+        Column        column
 ) :
         this_t(nullptr)  /* ensure vtable is initialised so that
                             reset() invokes the most-derived onReset() */
@@ -92,6 +93,20 @@ WRPARSE_API Lexer::~Lexer() = default;
 
 //--------------------------------------
 
+WRPARSE_API Token &
+Lexer::lex(
+        Token &out_token
+)
+{
+        return out_token.reset()
+                        .setOffset(offset())
+                        .setLine(line())
+                        .setColumn(column())
+                        .setFlags(next_token_flags_);
+}
+
+//--------------------------------------
+
 WRPARSE_API const char *
 Lexer::tokenKindName(
         TokenKind kind
@@ -100,7 +115,7 @@ Lexer::tokenKindName(
         switch (kind) {
         case TOK_NULL: return "NULL";
         case TOK_EOF:  return "EOF";
-        default:       return "?";
+        default:       return "unknown";
         }
 }
 
@@ -109,8 +124,8 @@ Lexer::tokenKindName(
 WRPARSE_API auto
 Lexer::reset(
         std::istream &input,
-        int           line,
-        int           column
+        Line          line,
+        Column        column
 ) -> this_t &
 {
         onReset(input, line, column);
@@ -120,6 +135,7 @@ Lexer::reset(
         offset_ = 0;
         hist_pos_ = hist_end_ = -1;
         hist_begin_ = 0;
+        next_token_flags_ = TF_STARTS_LINE;
         return *this;
 }
 
@@ -154,6 +170,7 @@ Lexer::read()
         offset_ += hist.bytes;
         column_ += hist.columns;
         line_ += hist.lines;
+        next_token_flags_ = hist.flags;
         return hist.c;
 }
 
@@ -191,6 +208,9 @@ Lexer::backtrack(
                 offset_ -= history_[hist_pos_].bytes;
                 column_ -= history_[hist_pos_].columns;
                 line_ -= history_[hist_pos_].lines;
+                if (!n_code_points) {
+                        next_token_flags_ = history_[hist_pos_].flags;
+                }
         }
 }
 
@@ -245,7 +265,8 @@ Lexer::replace(
                         history_[hist_pos_].columns += columns;
                 }
         } else {
-                history_[hist_pos_] = { with_c, bytes, lines, columns };
+                history_[hist_pos_] = { with_c, bytes, lines, columns,
+                                        history_[hist_pos_].flags };
         }
 
         if (src == hist_end_) {
@@ -272,6 +293,7 @@ Lexer::operator=(
 )
 {
         if (this != &other) {
+                *static_cast<base_t *>(this) = std::move(other);
                 input_.rdbuf(other.input_.rdbuf());
                 other.input_.rdbuf(nullptr);
                 line_ = other.line_;
@@ -280,6 +302,8 @@ Lexer::operator=(
                 other.column_ = 0;
                 offset_ = other.offset_;
                 other.offset_ = 0;
+                next_token_flags_ = other.next_token_flags_;
+                other.next_token_flags_ = 0;
                 hist_begin_ = other.hist_begin_;
                 other.hist_begin_ = 0;
                 hist_pos_ = other.hist_pos_;
@@ -416,22 +440,32 @@ Lexer::clearStorage()
 Lexer::History
 Lexer::doRead()
 {
-        char32_t result = input_.get();
-        uint8_t  bytes, lines;
-        int16_t  columns = 1;
+        char32_t   result = input_.get();
+        uint8_t    bytes, lines;
+        int16_t    columns = 1;
+        TokenFlags flags = next_token_flags_;
 
         switch ((result >> 4) & 0xf) {
-        default:  // 0 - 11
+        default:  // 0 - 11, result is ASCII character
                 switch (result) {
-                default:
+                case U'\r':
+                        columns = 0;
+                        // fall through
+                case U'\t': case ' ':
                         lines = 0;
+                        flags |= TF_SPACE_BEFORE;
                         break;
                 case U'\n': case U'\v': case U'\f':
                         lines = 1;
                         columns = -column_;
+                        flags = (flags & (~TF_SPACE_BEFORE)) | TF_STARTS_LINE;
+                        break;
+                default:
+                        lines = 0;
+                        flags &= ~(TF_SPACE_BEFORE | TF_STARTS_LINE);
                         break;
                 }
-                return historyAppend({ result, 1, lines, columns });
+                return historyAppend({ result, 1, lines, columns, flags });
         case 12: case 13:       // 110xxxxx 10xxxxxx
                 bytes = 2;
                 result &= 0x1f;
@@ -464,15 +498,21 @@ Lexer::doRead()
 
         switch (result) {
         default:
+                if (isuspace(result)) {
+                        flags |= TF_SPACE_BEFORE;
+                } else {
+                        flags &= ~(TF_SPACE_BEFORE | TF_STARTS_LINE);
+                }
                 lines = 0;
                 break;
         case U'\n': case U'\v': case U'\f': case 0x85: case 0x2028: case 0x2029:
                 lines = 1;
+                flags = (flags & (~TF_SPACE_BEFORE)) | TF_STARTS_LINE;
                 columns = -column_;
                 break;
         }
 
-        return historyAppend({ result, bytes, lines, columns });
+        return historyAppend({ result, bytes, lines, columns, flags });
 }
 
 //--------------------------------------

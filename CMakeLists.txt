@@ -67,6 +67,7 @@ endif()
 include_directories(include)
 
 set(WRPARSE_SOURCES
+        src/Diagnostics.cxx
         src/Grammar.cxx
         src/Lexer.cxx
         src/Parser.cxx
@@ -76,6 +77,7 @@ set(WRPARSE_SOURCES
 
 set(WRPARSE_HEADERS
         include/wrparse/Config.h
+        include/wrparse/Diagnostics.h
         include/wrparse/Grammar.h
         include/wrparse/Lexer.h
         include/wrparse/Parser.h
