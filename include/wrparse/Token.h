@@ -33,9 +33,12 @@ namespace wr {
 namespace parse {
 
 
-typedef uint16_t TokenKind;   /**< A token's meaning in the target language */
-typedef uint16_t TokenFlags;  /**< Bit flags set on individual tokens to mark
+using TokenKind = uint16_t;   ///< A token's meaning in the target language
+using TokenFlags = uint16_t;  /**< Bit flags set on individual tokens to mark
                                    special aspects (e.g. beginning of line) */
+using Line = uint32_t;        ///< Line number data tyoe
+using Column = uint16_t;      ///< Column number data type
+
 
 class Parser;
 
@@ -184,6 +187,36 @@ public:
                 { offset_ += static_cast<Offset>(delta); return *this; }
 
         /**
+         * \brief Set line number
+         * \param [in] line  the line number
+         * \return reference to `*this` object
+         */
+        Token &setLine(Line line) { line_ = line; return *this; }
+
+        /**
+         * \brief Move line number by `delta`
+         * \param [in] delta  value to be added to existing line number
+         * \return reference to `*this` object
+         */
+        Token &adjustLine(int32_t delta)
+                { line_ += static_cast<Line>(delta); return *this; }
+
+        /**
+         * \brief Set column number
+         * \param [in] column  the column number
+         * \return reference to `*this` object
+         */
+        Token &setColumn(Column column) { column_ = column; return *this; }
+
+        /**
+         * \brief Move column number by `delta`
+         * \param [in] delta  value to be added to existing column number
+         * \return reference to `*this` object
+         */
+        Token &adjustColumn(int16_t delta)
+                { column_ += static_cast<Column>(delta); return *this; }
+
+        /**
          * \brief Set token's spelling
          * \param [in] spelling
          *      the new spelling, encoded as ASCII or UTF-8; its memory
@@ -209,6 +242,12 @@ public:
 
         /// \brief Retrieve offset in bytes from start of raw input text
         Offset offset() const { return offset_; }
+
+        /// \brief Retrieve line number
+        Line line() const { return line_; }
+
+        /// \brief Retrieve starting column number
+        Column column() const { return column_; }
 
         /// \brief Retrieve number of bytes occupied by the token
         size_t bytes() const { return bytes_; }
@@ -286,6 +325,8 @@ private:
         TokenFlags  flags_;
         Offset      offset_;
         TokenKind   kind_;
+        Line        line_;
+        Column      column_;
 };
 
 static_assert(alignof(Token) >= 4, "Token requires alignment of 4 or more");
