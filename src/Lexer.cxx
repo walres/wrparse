@@ -318,6 +318,17 @@ Lexer::operator=(
 
 //--------------------------------------
 
+WRPARSE_API auto
+Lexer::setNextTokenFlags(
+        TokenFlags flags
+) -> this_t &
+{
+        next_token_flags_ = flags;
+        return *this;
+}
+
+//--------------------------------------
+
 WRPARSE_API char *
 Lexer::allocate(
         size_t size

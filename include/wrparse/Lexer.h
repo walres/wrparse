@@ -370,6 +370,12 @@ protected:
                 ///< \brief Remove characters in history buffer
         ///@}
 
+        /// \brief Retrieve flags to be set on next lexed token
+        TokenFlags nextTokenFlags() const noexcept { return next_token_flags_; }
+
+        /// \brief Modify flags to be set on next lexed token
+        this_t &setNextTokenFlags(TokenFlags flags);
+
         /**
          * \name Functions for token data storage
          */
