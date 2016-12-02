@@ -43,7 +43,6 @@ struct PatternLexer::Body
         using this_t         = Body;
         using PatternRefList = circ_fwd_list<Rule::Pattern *>;
         using Page           = std::array<PatternRefList, 256>;
-        using FirstTable     = std::array<uint16_t, 4352>; // = (0x110000 / 256)
 
         struct Match
         {
@@ -89,7 +88,7 @@ struct PatternLexer::Body
 
         Body(PatternLexer &me, std::initializer_list<Rule> rules);
 
-        void setMatchFirst(char32_t char_val, Rule::Pattern &pattern);
+        void setMatchFirst(uint8_t char_val, Rule::Pattern &pattern);
         char32_t readChar();
         MatchIterator lex(Token &out_token);
         MatchIterator processMatch(MatchIterator prev, uint32_t pcre_options,
@@ -98,8 +97,7 @@ struct PatternLexer::Body
 
         PatternLexer        &me_;
         circ_fwd_list<Rule>  rules_;
-        FirstTable           first_table_;
-        std::vector<Page>    pages_;
+        Page                 first_;
         PatternRefList       match_all_first_;
         MatchList            in_progress_;
         MatchIterator        last_incomplete_match_;
@@ -120,7 +118,6 @@ PatternLexer::Body::Body(
         std::initializer_list<Rule>  rules
 ) :
         me_                   (me),
-        pages_                (1),
         rules_                (rules),
         last_incomplete_match_(in_progress_.before_begin()),
         base_offset_          (me_.base_t::offset()),
@@ -128,8 +125,6 @@ PatternLexer::Body::Body(
         match_start_          (buf_pos_),
         next_token_flags_     (TF_STARTS_LINE)
 {
-        first_table_.fill(0);
-
         int priority = 0;
 
         for (Rule &rule: rules_) {
@@ -145,12 +140,14 @@ PatternLexer::Body::Body(
 
                         if (pcre2_pattern_info(re, PCRE2_INFO_FIRSTCODETYPE,
                                                &status) == 0 && (status == 1)) {
-                                int32_t char_val;
+                                uint32_t char_val;
         
                                 if (pcre2_pattern_info(re,
                                                        PCRE2_INFO_FIRSTCODEUNIT,
                                                        &char_val) == 0) {
-                                        setMatchFirst(char_val, pattern);
+                                        setMatchFirst(
+                                                numeric_cast<uint8_t>(char_val),
+                                                pattern);
                                         continue;
                                 }
                         }
@@ -177,25 +174,11 @@ PatternLexer::Body::Body(
 
 void
 PatternLexer::Body::setMatchFirst(
-        char32_t       char_val,
+        uint8_t        char_val,
         Rule::Pattern &pattern
 )
 {
-        if (char_val >= wr::ucd::CODE_SPACE_SIZE) {
-                throw std::logic_error(printStr("%s:%d: character %#x > max %x",
-                                       __FILE__, __LINE__, char_val,
-                                       wr::ucd::CODE_SPACE_SIZE - 1));
-        }
-
-        auto &page_no = first_table_[char_val >> 8];
-
-        if (page_no == 0) {
-                page_no = numeric_cast<uint16_t>(pages_.size());
-                pages_.emplace_back();
-        }
-
-        Page &page = pages_.at(page_no);
-        page[char_val & 0xff].push_back(&pattern);
+        first_[char_val].push_back(&pattern);
 }
 
 //--------------------------------------
@@ -274,16 +257,15 @@ PatternLexer::Body::lex(
 
         assert(c < wr::ucd::CODE_SPACE_SIZE);
 
-        char  key     = buffer_[buf_pos_ - last_read_bytes_];
-        auto &page_no = first_table_[key >> 8];
-        auto  i_page  = pages_[page_no][key & 0xff].begin(),
-              i_all   = match_all_first_.begin();
+        auto key = static_cast<uint8_t>(buffer_[buf_pos_ - last_read_bytes_]);
+        auto i_first = first_[key].begin(),
+             i_all = match_all_first_.begin();
 
-        while (i_page || i_all) {
-                if (!i_all || (i_page && ((*i_page)->rule_->priority_
-                                          > (*i_all)->rule_->priority_))) {
-                        in_progress_.emplace_back(**i_page);
-                        ++i_page;
+        while (i_first || i_all) {
+                if (!i_all || (i_first && ((*i_first)->rule_->priority_
+                                           > (*i_all)->rule_->priority_))) {
+                        in_progress_.emplace_back(**i_first);
+                        ++i_first;
                 } else {
                         in_progress_.emplace_back(**i_all);
                         ++i_all;
