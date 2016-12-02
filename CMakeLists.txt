@@ -31,6 +31,10 @@ endif()
 #
 # Dependencies
 #
+
+#
+# Check for wrUtil library
+#
 if (WRUTIL_ROOT)
         # fall through
 elseif (IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/wrutil/)
@@ -59,6 +63,50 @@ if (NOT WRUTIL_BUILD_DIR)
                 message(SEND_ERROR "wrutil library not found. Please either specify -DWRUTIL_ROOT=<dir> where <dir> is the base directory of a pre-installed wrutil package, or place a copy of the wrutil source tree (with directory name \"wrutil\") under the top directory of wrparse.")
         endif()
 endif()
+
+#
+# Check for PCRE2 library
+#
+set(CMAKE_REQUIRED_DEFINITIONS ${CXX_CHOSEN_STD_FLAG})
+if (NOT PCRE2_INCLUDE)
+        if (PCRE2_ROOT)
+                set(PCRE2_INCLUDE "${PCRE2_ROOT}/include")
+        endif()
+endif()
+
+if (PCRE2_INCLUDE)
+        include_directories(${PCRE2_INCLUDE})
+        set(CMAKE_REQUIRED_DEFINITIONS "${CMAKE_REQUIRED_DEFINITIONS} -I${PCRE2_INCLUDE}")
+endif()
+
+if (NOT PCRE2_LIB)
+        if (PCRE2_ROOT)
+                set(PCRE2_LIB "${PCRE2_ROOT}/lib")
+        endif()
+endif()
+
+if (PCRE2_LIB)
+        link_directories(${PCRE2_LIB})
+        find_library(PCRE2_LIB_NAME pcre2-8 PATHS "${PCRE2_LIB}")
+else()
+        find_library(PCRE2_LIB_NAME pcre2-8)
+endif()
+
+if (PCRE2_LIB_NAME)
+        set(CMAKE_REQUIRED_LIBRARIES "${PCRE2_LIB_NAME}")
+        set(CHECK_CXX_CODE "#define PCRE2_CODE_UNIT_WIDTH 8\n#include <pcre2.h>\nint main() { pcre2_code *regex = pcre2_compile((PCRE2_SPTR8) \"\", 0, 0, nullptr, nullptr, nullptr)\; (void) regex\; return 0\; }\n")
+        check_cxx_source_runs(${CHECK_CXX_CODE} HAVE_PCRE2)
+                # use check_cxx_source_runs() to verify no link errors
+else()
+        message("PCRE2 library not found.")
+endif()
+
+if (NOT HAVE_PCRE2)
+        message(SEND_ERROR "PCRE2 dependency not satisfied.\nPlease either specify -DPCRE2_ROOT=<dir> where <dir> is the base directory of your PCRE2 installation, or specify -DPCRE2_INCLUDE=<inc_dir> and -DPCRE2_LIB=<lib_dir> where <inc_dir> and <lib_dir> are the directories containing the PCRE2 headers and libraries respectively.\nIf using shared PCRE2 library (DLL) please ensure your environment is set to pick it up when executing a program linked to it.")
+endif()
+
+unset(CMAKE_REQUIRED_DEFINITIONS)
+unset(CMAKE_REQUIRED_LIBRARIES)
 
 ########################################
 #
