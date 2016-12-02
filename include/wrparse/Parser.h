@@ -64,7 +64,7 @@ public:
 
         Parser &setLexer(Lexer &lexer);
 
-        SPPFNode::Ptr parse(const Production &start);
+        SPPFNode::Ptr parse(const NonTerminal &start);
 
         Lexer *lexer()                   { return lexer_; }
         TokenList &tokens()              { return tokens_; }
@@ -115,13 +115,13 @@ public:
 
         ~ParseState();
 
-        const Parser &parser() const          { return parser_; }
-        Parser &parser()                      { return parser_; }
-        const Production &start() const       { return start_; }
-        const Rule &rule() const              { return rule_; }
-        const Production &production() const  { return *rule_.production(); }
-        SPPFNode::ConstPtr parsedNode() const { return parsed_; }
-        Token *input() const                  { return input_pos_; }
+        const Parser &parser() const           { return parser_; }
+        Parser &parser()                       { return parser_; }
+        const NonTerminal &start() const       { return start_; }
+        const Rule &rule() const               { return rule_; }
+        const NonTerminal &nonTerminal() const { return *rule_.nonTerminal(); }
+        SPPFNode::ConstPtr parsedNode() const  { return parsed_; }
+        Token *input() const                   { return input_pos_; }
 
         /**
          * \brief Emit diagnostic message for current input token position
@@ -147,11 +147,11 @@ private:
 
         ParseState(const this_t &other);
 
-        ParseState(Parser &parser, const Production &start, const Rule &rule,
+        ParseState(Parser &parser, const NonTerminal &start, const Rule &rule,
                    Token *input_pos, SPPFNode::ConstPtr parsed = nullptr);
 
         Parser             &parser_;
-        const Production   &start_;
+        const NonTerminal  &start_;
         const Rule         &rule_;
         Token              *input_pos_;
         SPPFNode::ConstPtr  parsed_;
