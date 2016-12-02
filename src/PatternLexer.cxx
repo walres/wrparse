@@ -104,6 +104,7 @@ struct PatternLexer::Body
         MatchList            in_progress_;
         MatchIterator        last_incomplete_match_;
         std::string          buffer_;
+        std::streamoff       base_offset_;
         size_t               buf_pos_,
                              match_start_;
         std::streamoff       last_read_bytes_;
@@ -122,6 +123,7 @@ PatternLexer::Body::Body(
         pages_                (1),
         rules_                (rules),
         last_incomplete_match_(in_progress_.before_begin()),
+        base_offset_          (me_.base_t::offset()),
         buf_pos_              (0),
         match_start_          (buf_pos_),
         next_token_flags_     (TF_STARTS_LINE)
@@ -201,104 +203,54 @@ PatternLexer::Body::setMatchFirst(
 char32_t
 PatternLexer::Body::readChar()
 {
-        std::istream &input = me_.input();
-        int           c;
-        size_t        orig_buf_pos = buf_pos_;
-
-        if (buf_pos_ < buffer_.size()) {
-                c = buffer_[buf_pos_++];
-        } else {
-                c = input.get();
-                if (c == std::char_traits<char>::eof()) {
-                        return base_t::eof;
-                }
-                buffer_ += c;
-                ++buf_pos_;
-        }
+        char32_t c;
 
         last_read_lines_ = 0;
-        last_read_columns_ = 1;
 
-        char32_t result  = c;
-        bool     invalid = false;
-
-        switch ((c >> 4) & 0xf) {
-        default:  // 0 - 7
-                last_read_bytes_ = 1;
-                break;
-        case 8: case 9: case 10: case 11:
-                last_read_bytes_ = 1;
-                invalid = true;
-                break;
-        case 12: case 13:       // 110xxxxx 10xxxxxx
-                last_read_bytes_ = 2;
-                result &= 0x1f;
-                break;
-        case 14:                // 1110xxxx 10xxxxxx 10xxxxxx
-                last_read_bytes_ = 3;
-                result &= 0xf;
-                break;
-        case 15:                // 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-                last_read_bytes_ = 4;
-                result &= 7;
-                break;
-        }
-
-        auto bytes = last_read_bytes_ - 1;
-
-        for (; (buf_pos_ < buffer_.size()) && (bytes > 0); --bytes) {
-                c = buffer_[buf_pos_++];
-                result = (result << 6) | (c & 0x3f);
-        }
-
-        for (; bytes > 0; buffer_ += c, ++buf_pos_, --bytes) {
-                c = input.get();
-                if (((c & 0xc0) != 0x80)
-                                || (c == std::char_traits<char>::eof())) {
-                        invalid = true;
-                        break;
-                }
-                result = (result << 6) | (c & 0x3f);
-        }
-
-        if (invalid) {
-                buffer_.resize(orig_buf_pos);
-                utf8_append(buffer_, INVALID_CHAR);
-                buf_pos_ = buffer_.size();
-                last_read_bytes_ = buf_pos_ - orig_buf_pos;
+        if (buf_pos_ < buffer_.size()) {
+                const uint8_t *pos, *end, *next_pos;
+                pos = reinterpret_cast<uint8_t *>(&buffer_[buf_pos_]);
+                end = reinterpret_cast<uint8_t *>(&buffer_[buffer_.size()]);
+                c = utf8_char(pos, end, &next_pos);
+                last_read_columns_ = 1;
+                last_read_bytes_ = next_pos - pos;
+                buf_pos_ += last_read_bytes_;
         } else {
-                if (isuspace(result)) {
-                        next_token_flags_ |= TF_SPACE_BEFORE;
+                auto orig_offset = me_.offset();
+                c = me_.read();
+                if (c == eof) {
+                        last_read_columns_ = 0;
                 } else {
-                        next_token_flags_ &= ~(TF_SPACE_BEFORE
-                                                | TF_STARTS_LINE);
-                }
-
-                bool is_newline = false;
-
-                switch (result) {
-                case U'\n': case U'\v': case U'\f':
-                        is_newline = true;
-                        break;
-                default:
-                        switch (ucd::category(result)) {
-                        case ucd::LINE_SEPARATOR: case ucd::PARAGRAPH_SEPARATOR:
-                                is_newline = true;
-                                break;
-                        default:
-                                break;
-                        }
-                        break;
-                }
-
-                if (is_newline) {
-                        last_read_lines_ = 1;
-                        last_read_columns_ = -me_.column();
-                        next_token_flags_ |= TF_STARTS_LINE;
+                        utf8_append(buffer_, c);
+                        buf_pos_ = buffer_.size();
+                        last_read_columns_ = 1;
+                        last_read_bytes_ = me_.offset() - orig_offset;
                 }
         }
 
-        return result;
+        if (isuspace(c)) {
+                next_token_flags_ |= TF_SPACE_BEFORE;
+        } else {
+                next_token_flags_ &= ~(TF_SPACE_BEFORE | TF_STARTS_LINE);
+        }
+
+        bool is_newline = false;
+
+        switch (c) {
+        case U'\n': case U'\v': case U'\f': case 0x85: case 0x2028: case 0x2029:
+                is_newline = true;
+                break;
+        default:
+                break;
+        }
+
+        if (is_newline) {
+                last_read_lines_ = 1;
+                last_read_columns_ = -me_.column();
+                next_token_flags_ |= TF_STARTS_LINE;
+        }
+
+        return c;
 }
 
 //--------------------------------------
@@ -750,6 +702,9 @@ PatternLexer::lex(
 
                         // keep buffer size under control
                         if ((body_->buffer_.size() - body_->buf_pos_) < 4) {
+                                body_->base_offset_ +=
+                                        numeric_cast<std::streamoff>(
+                                                body_->buf_pos_);
                                 body_->buffer_.erase(0, body_->buf_pos_);
                                 body_->buf_pos_ = 0;
                         }
@@ -766,6 +721,15 @@ PatternLexer::matched() const
 {
         return { &body_->buffer_[body_->match_start_],
                  body_->buf_pos_ - body_->match_start_ };
+}
+
+//--------------------------------------
+
+WRPARSE_API std::streamoff
+PatternLexer::offset() const
+{
+        return body_->base_offset_
+                + numeric_cast<std::streamoff>(body_->buf_pos_);
 }
 
 
