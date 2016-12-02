@@ -31,6 +31,10 @@ endif()
 #
 # Dependencies
 #
+
+#
+# Check for wrUtil library
+#
 if (WRUTIL_ROOT)
         # fall through
 elseif (IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/wrutil/)
@@ -60,6 +64,72 @@ if (NOT WRUTIL_BUILD_DIR)
         endif()
 endif()
 
+#
+# Check for PCRE2 library
+#
+set(CMAKE_REQUIRED_DEFINITIONS ${CXX_CHOSEN_STD_FLAG})
+
+IF (PCRE2_ROOT)
+        file(TO_CMAKE_PATH "${PCRE2_ROOT}" PCRE2_ROOT)
+endif()
+
+if (PCRE2_INCLUDE)
+        file(TO_CMAKE_PATH "${PCRE2_INCLUDE}" PCRE2_INCLUDE)
+else()
+        if (PCRE2_ROOT)
+                set(PCRE2_INCLUDE "${PCRE2_ROOT}/include")
+        endif()
+endif()
+
+if (PCRE2_INCLUDE)
+        include_directories(${PCRE2_INCLUDE})
+        set(CMAKE_REQUIRED_DEFINITIONS "${CMAKE_REQUIRED_DEFINITIONS} -I${PCRE2_INCLUDE}")
+endif()
+
+if (PCRE2_LIB)
+        file(TO_CMAKE_PATH "${PCRE2_LIB}" PCRE2_LIB)
+else()
+        if (PCRE2_ROOT)
+                set(PCRE2_LIB "${PCRE2_ROOT}/lib")
+        endif()
+endif()
+
+if (PCRE2_LIB)
+        link_directories(${PCRE2_LIB})
+        find_library(PCRE2_LIB_NAME pcre2-8 PATHS "${PCRE2_LIB}")
+else()
+        find_library(PCRE2_LIB_NAME pcre2-8)
+endif()
+
+if (PCRE2_LIB_NAME)
+        set(CMAKE_REQUIRED_LIBRARIES "${PCRE2_LIB_NAME}")
+        set(CHECK_CXX_CODE "#define PCRE2_CODE_UNIT_WIDTH 8\n#include <pcre2.h>\nint main() { pcre2_code *regex = pcre2_compile((PCRE2_SPTR8) \"\", 0, 0, nullptr, nullptr, nullptr)\; (void) regex\; return 0\; }\n")
+
+        check_cxx_source_runs(${CHECK_CXX_CODE} HAVE_PCRE2)
+                # use check_cxx_source_runs() to verify no link errors
+
+        if (WIN32)
+                if (NOT HAVE_PCRE2)
+                        message("    (Retrying with PCRE2_STATIC defined)")
+                        unset(HAVE_PCRE2 CACHE)
+                        set(CMAKE_REQUIRED_DEFINITIONS "${CMAKE_REQUIRED_DEFINITIONS} -DPCRE2_STATIC")
+                        check_cxx_source_runs(${CHECK_CXX_CODE} HAVE_PCRE2)
+                        if (HAVE_PCRE2)
+                                add_definitions(-DPCRE2_STATIC)
+                        endif()
+                endif()
+        endif()
+else()
+        message("PCRE2 library not found.")
+endif()
+
+if (NOT HAVE_PCRE2)
+        message(SEND_ERROR "PCRE2 dependency not satisfied.\nPlease either specify -DPCRE2_ROOT=<dir> where <dir> is the base directory of your PCRE2 installation, or specify -DPCRE2_INCLUDE=<inc_dir> and -DPCRE2_LIB=<lib_dir> where <inc_dir> and <lib_dir> are the directories containing the PCRE2 headers and libraries respectively.\nIf using shared PCRE2 library (DLL) please ensure your environment is set to pick it up when executing a program linked to it.")
+endif()
+
+unset(CMAKE_REQUIRED_DEFINITIONS)
+unset(CMAKE_REQUIRED_LIBRARIES)
+
 ########################################
 #
 # Target Definitions
@@ -71,6 +141,7 @@ set(WRPARSE_SOURCES
         src/Grammar.cxx
         src/Lexer.cxx
         src/Parser.cxx
+        src/PatternLexer.cxx
         src/SPPF.cxx
         src/Token.cxx
 )
@@ -81,6 +152,7 @@ set(WRPARSE_HEADERS
         include/wrparse/Grammar.h
         include/wrparse/Lexer.h
         include/wrparse/Parser.h
+        include/wrparse/PatternLexer.h
         include/wrparse/SPPF.h
         include/wrparse/SPPFOutput.h
         include/wrparse/Token.h
@@ -89,7 +161,7 @@ set(WRPARSE_HEADERS
 add_library(wrparse SHARED ${WRPARSE_SOURCES} ${WRPARSE_HEADERS})
 add_library(wrparse_static STATIC ${WRPARSE_SOURCES} ${WRPARSE_HEADERS})
 
-target_link_libraries(wrparse wrutil)
+target_link_libraries(wrparse wrutil pcre2-8)
 
 set_target_properties(wrparse PROPERTIES
         COMPILE_FLAGS "-Dwrutil_IMPORTS ${WR_SOFLAGS}"

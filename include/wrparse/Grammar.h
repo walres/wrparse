@@ -139,6 +139,7 @@ public:
         using this_t = Rule;
         using const_iterator = base_t::const_iterator;
 
+        Rule();
         Rule(std::initializer_list<Component> init, bool enable = true);
 
         Rule(std::initializer_list<Component> init, const this_t *&out_ptr,

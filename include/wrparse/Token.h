@@ -25,6 +25,7 @@
 #ifndef WRPARSE_TOKEN_H
 #define WRPARSE_TOKEN_H
 
+#include <wrutil/numeric_cast.h>
 #include <wrutil/u8string_view.h>
 #include <wrparse/Config.h>
 
@@ -146,12 +147,17 @@ public:
          */
         Token &setKind(TokenKind kind) { kind_ = kind; return *this; }
 
+        ///@{
         /**
          * \brief Set token offset
          * \param [in] offset  the target offset
          * \return reference to `*this` object
          */
         Token &setOffset(Offset offset) { offset_ = offset; return *this; }
+
+        Token &setOffset(std::streamoff offset)
+                { return setOffset(numeric_cast<Offset>(offset)); }
+        ///@}
 
         /**
          * \brief Reset all token flags exactly as given
