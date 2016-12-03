@@ -149,6 +149,8 @@ class CalcParser : public wr::parse::Parser
 public:
         CalcParser(CalcLexer &lexer);  // set up grammar and semantic actions
 
+        static bool arithmeticAction(wr::parse::ParseState &state);
+                                                        // semantic action
         // all nonterminals
         const wr::parse::NonTerminal primary_expr,
                                      unary_expr,
@@ -207,81 +209,45 @@ CalcParser::CalcParser(CalcLexer &lexer) :
         }}
 {
         // part two: semantic actions
-        arithmetic_expr.addPostParseAction([](wr::parse::ParseState &state) {
-                wr::parse::SPPFNode::ConstPtr parsed    = state.parsedNode();
-                double                        result    = 0;
-                wr::parse::TokenKind          operation = TOK_PLUS;
-
-                for (const auto &term: wr::parse::subProductions(parsed)) {
-                        double operand = Result::getFrom(term)->value;
-                        if (operation == TOK_MINUS) {
-                                operand = -operand;
-                        }
-                        result += operand;
-                        operation = term.lastToken()->next()->kind();
-                }
-
-                parsed->setAuxData(new Result(result));
-                return true;
-        });
-
-        multiply_expr.addPostParseAction([](wr::parse::ParseState &state) {
-                if (state.rule().index() == 0) {  // is unary_expr
-                        return true;
-                }
-
-                wr::parse::SPPFNode::ConstPtr parsed    = state.parsedNode();
-                double                        result    = 0;
-                wr::parse::TokenKind          operation = TOK_NULL;
-
-                for (const auto &term: wr::parse::subProductions(parsed)) {
-                        double operand = Result::getFrom(term)->value;
-                        if (operation == TOK_MULTIPLY) {
-                                result *= operand;
-                        } else if (operation == TOK_DIVIDE) {
-                                result /= operand;
-                        } else {
-                                result = operand;
-                        }
-                        operation = term.lastToken()->next()->kind();
-                }
-
-                parsed->setAuxData(new Result(result));
-                return true;
-        });
-
-        unary_expr.addPostParseAction([](wr::parse::ParseState &state) {
-                if (state.rule().index() != 0) {  // is not primary-expr
-                        auto parsed = state.parsedNode();
-                        auto i = wr::parse::nonTerminals(parsed);
-                        if (!++i) {  // skip sign
-                                return false;
-                        }
-                        double result = Result::getFrom(*i)->value;
-                        if (parsed->firstToken()->is(TOK_MINUS)) {
-                                result = -result;
-                        }
-                        parsed->setAuxData(new Result(result));
-                }
-                return true;
-        });
-
-        primary_expr.addPostParseAction([](wr::parse::ParseState &state) {
-                wr::parse::SPPFNode::ConstPtr parsed = state.parsedNode();
-
-                if (parsed->is(TOK_NUMBER)) {
-                        parsed->setAuxData(new Result(
-                                    CalcLexer::valueOf(parsed->firstToken())));
-                } else {  // parenthesised expression
-                        auto i = wr::parse::nonTerminals(parsed);
-                        if (!i) {
-                                return false;
-                        }
-                        parsed->setAuxData(Result::getFrom(*i));
-                }
-                return true;
-        });
+        arithmetic_expr.addPostParseAction(&arithmeticAction);
+        multiply_expr.addPostParseAction(&arithmeticAction);
+        unary_expr.addPostParseAction(&arithmeticAction);
+        primary_expr.addPostParseAction(&arithmeticAction);
 }
+
+
+bool CalcParser::arithmeticAction(wr::parse::ParseState &state)
+{
+        wr::parse::SPPFNode::ConstPtr parsed = state.parsedNode();
+        double                        result = 0;
+
+        if (parsed->is(TOK_NUMBER)) {
+                result = CalcLexer::valueOf(parsed->firstToken());
+        } else {
+                wr::parse::TokenKind operation = parsed->firstToken()->kind();
+
+                for (const auto &term: wr::parse::nonTerminals(parsed)) {
+                        if (!term.auxData()) {
+                                continue;  // skip unary-op part of unary-expr
+                        }
+
+                        double operand = Result::getFrom(term)->value;
+
+                        switch (operation) {
+                        default:           result = operand; break;
+                        case TOK_PLUS:     result += operand; break;
+                        case TOK_MINUS:    result -= operand; break;
+                        case TOK_MULTIPLY: result *= operand; break;
+                        case TOK_DIVIDE:   result /= operand; break;
+                        }
+
+                        operation = term.lastToken()->next()->kind();
+                }
+        }
+
+        parsed->setAuxData(new Result(result));
+        return true;
+};
 
 //--------------------------------------
 
