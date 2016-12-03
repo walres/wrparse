@@ -47,12 +47,11 @@ struct PatternLexer::Body
         struct Match
         {
                 size_t            end_pos_;
+                Line              end_line_;
+                Column            end_column_;
                 Rule::Pattern    &pattern_;
                 pcre2_match_data *re_match_;
                 std::vector<int>  re_workspace_;
-                std::streamoff    bytes_;
-                int               lines_,
-                                  columns_;
                 TokenFlags        next_token_flags_;
                 bool              matches_single_newline_;
 
@@ -60,14 +59,13 @@ struct PatternLexer::Body
                         Rule::Pattern &pattern
                 ) :
                         end_pos_ (0),
+                        end_line_(0),
+                        end_column_(0),
                         pattern_ (pattern),
                         re_match_(pcre2_match_data_create_from_pattern(
                                                 (pcre2_code *) pattern_.re_,
                                                 nullptr)),
                         re_workspace_(pattern.re_workspace_size_),
-                        bytes_(0),
-                        lines_(0),
-                        columns_(0),
                         next_token_flags_(0),
                         matches_single_newline_(
                                         (pattern_.orig_str_ == R"(\R)")
@@ -188,7 +186,9 @@ PatternLexer::Body::readChar()
 
         last_read_lines_ = 0;
 
-        if (buf_pos_ < buffer_.size()) {
+        bool from_buffer = buf_pos_ < buffer_.size();
+
+        if (from_buffer) {
                 const uint8_t *pos, *end, *next_pos;
                 pos = reinterpret_cast<uint8_t *>(&buffer_[buf_pos_]);
                 end = reinterpret_cast<uint8_t *>(&buffer_[buffer_.size()]);
@@ -196,6 +196,8 @@ PatternLexer::Body::readChar()
                 last_read_columns_ = 1;
                 last_read_bytes_ = next_pos - pos;
                 buf_pos_ += last_read_bytes_;
+                me_.bumpOffset(last_read_bytes_);
+                
         } else {
                 auto orig_offset = me_.offset();
                 c = me_.read();
@@ -211,23 +213,28 @@ PatternLexer::Body::readChar()
 
         auto flags = me_.nextTokenFlags();
 
-        if (isuspace(c)) {
-                flags |= TF_SPACE_BEFORE;
-        } else {
-                flags &= ~(TF_SPACE_BEFORE | TF_STARTS_LINE);
-        }
-
         switch (c) {
         case U'\n': case U'\v': case U'\f': case 0x85: case 0x2028: case 0x2029:
                 last_read_lines_ = 1;
                 last_read_columns_ = -me_.column();
-                flags |= TF_STARTS_LINE;
+                flags = (flags & ~TF_SPACE_BEFORE) | TF_STARTS_LINE;
                 break;
         default:
+                if (isuspace(c)) {
+                        flags |= TF_SPACE_BEFORE;
+                } else {
+                        flags &= ~(TF_SPACE_BEFORE | TF_STARTS_LINE);
+                }
                 break;
         }
 
         me_.setNextTokenFlags(flags);
+
+        if (from_buffer) {
+                me_.bumpLine(last_read_lines_);
+                me_.bumpColumn(last_read_columns_);
+        }
+
         return c;
 }
 
@@ -291,6 +298,9 @@ PatternLexer::Body::lex(
                         }
                 } else if (reprocess_char && !at_eof) {
                         buf_pos_ -= last_read_bytes_;
+                        me_.bumpOffset(last_read_bytes_);
+                        me_.bumpLine(last_read_lines_);
+                        me_.bumpColumn(last_read_columns_);
                 }
         }
 
@@ -334,15 +344,13 @@ PatternLexer::Body::processMatch(
                 if (status >= 0) {
                         // matched - try to match more
                         i->end_pos_ = buf_pos_;
+                        i->end_line_ = me_.line();
+                        i->end_column_ = me_.column();
                         i->next_token_flags_ = me_.nextTokenFlags();
                         /* HACK: if original pattern string is a simple newline,
                            finish now (friendlier for interactive lexing) */
                         finish = i->matches_single_newline_;
                 }
-
-                i->bytes_ += last_read_bytes_;
-                i->lines_ += last_read_lines_;
-                i->columns_ += last_read_columns_;
         } else {
                 finish = true;
         }
@@ -399,11 +407,10 @@ PatternLexer::Rule::Rule(
         for (const u8string_view &pattern: patterns) {
                 int    pcre_error_code;
                 size_t error_at;
-
-                auto re = pcre2_compile(pattern.data(), pattern.bytes(),
-                                        PCRE2_DOTALL | PCRE2_MULTILINE
-                                                     | PCRE2_UCP | PCRE2_UTF,
-                                        &pcre_error_code, &error_at, nullptr);
+                auto   re = pcre2_compile(pattern.data(), pattern.bytes(),
+                                          PCRE2_DOTALL | PCRE2_MULTILINE
+                                                       | PCRE2_UCP | PCRE2_UTF,
+                                          &pcre_error_code, &error_at, nullptr);
                 if (re) {
                         patterns_.emplace_back(this, pattern, re);
                 } else if (pcre_error_code == PCRE2_ERROR_NOMEMORY) {
@@ -659,9 +666,10 @@ PatternLexer::lex(
                 auto match = body_->lex(out_token);
 
                 if (match) {
-                        bumpLine(match->lines_);
-                        bumpColumn(match->columns_);
-                        bumpOffset(match->bytes_);
+                        setOffset(body_->base_offset_
+                               + numeric_cast<std::streamoff>(match->end_pos_));
+                        setLine(match->end_line_);
+                        setColumn(match->end_column_);
                         body_->buf_pos_ = match->end_pos_;
                         setNextTokenFlags(match->next_token_flags_);
 
@@ -684,6 +692,16 @@ PatternLexer::lex(
                                 body_->buffer_.erase(0, body_->buf_pos_);
                                 body_->buf_pos_ = 0;
                         }
+                } else if (!out_token.is(TOK_EOF)) {
+                        // out_token contains original offset/line/column
+                        body_->buf_pos_ -= offset() - out_token.offset();
+                        setOffset(out_token.offset());
+                        setLine(out_token.line());
+                        setColumn(out_token.column());
+                        char c = body_->readChar();
+                        emit({Diagnostic::ERROR, out_token.offset(),
+                              utf8_seq_size(c), out_token.line(),
+                              out_token.column(), "Illegal character '%c'", c});
                 }
         } while (repeat);
 
@@ -697,15 +715,6 @@ PatternLexer::matched() const
 {
         return { &body_->buffer_[body_->match_start_],
                  body_->buf_pos_ - body_->match_start_ };
-}
-
-//--------------------------------------
-
-WRPARSE_API std::streamoff
-PatternLexer::offset() const
-{
-        return body_->base_offset_
-                + numeric_cast<std::streamoff>(body_->buf_pos_);
 }
 
 

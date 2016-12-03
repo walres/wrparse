@@ -124,10 +124,6 @@ public:
 
         wr::u8string_view matched() const;
 
-        std::streamoff offset() const;
-                        /**< \brief Obtain number of bytes read from
-                                the beginning of the input */
-
 protected:
         wr::u8string_view storeMatched() { return store(matched()); }
 
