@@ -90,4 +90,22 @@ Token::operator!=(
 
 
 } // namespace parse
+
+//--------------------------------------
+
+namespace fmt {
+
+
+WRPARSE_API void
+fmt::TypeHandler<wr::parse::Token>::set(
+        Arg                    &arg,
+        const wr::parse::Token &val
+)
+{
+        arg.type = Arg::STR_T;
+        arg.s = { val.spelling().char_data(), val.spelling().bytes() };
+}
+
+
+} // namespace fmt
 } // namespace wr

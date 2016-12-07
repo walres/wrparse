@@ -30,7 +30,6 @@
 #include <stdexcept>
 #include <vector>
 #include <unordered_map>
-#include <unordered_set>
 #include <wrutil/circ_fwd_list.h>
 
 #include <wrutil/CityHash.h>
@@ -557,8 +556,7 @@ Parser::GLL::report(
                 }
         }
 
-        parser_.emit({ Diagnostic::ERROR, *recovery_pos_,
-                       "expected %s", expect });
+        parser_.emit(Diagnostic::ERROR, *recovery_pos_, "expected %s", expect);
 }
 
 //--------------------------------------
@@ -1266,9 +1264,18 @@ Parser::nextToken(
 
         if (tokens_.empty() || (pos == static_cast<Token *>(tokens_.last()))) {
                 next = tokens_.emplace_back().node();
-                while (lexer_->lex(*next).is(TOK_NULL)) {
-                        if (fatalErrorCount()) {
-                                throw FatalError();
+                size_t orig_error_count = errorCount();
+                for (int strike = 0; lexer_->lex(*next).is(TOK_NULL); ) {
+                        /* lexer error; emit() will eventually throw due to
+                           fatal error once error limit reached */
+                        if (errorCount() == orig_error_count) {
+                                if (++strike == 3) {
+                                        emit(Diagnostic::FATAL_ERROR, *next,
+                                             "lexer not returning any tokens");
+                                }
+                        } else {
+                                strike = 0;
+                                orig_error_count = errorCount();
                         }
                 }
         } else if (pos) {
@@ -1294,6 +1301,7 @@ WRPARSE_API Parser &
 Parser::reset()
 {
         tokens_.clear();
+        diagnostics_.clear();
         DiagnosticCounter::reset();
         return *this;
 }
@@ -1321,10 +1329,21 @@ try {
         } else if (start.empty()) {
                 return nullptr;
         } else if (fatalErrorCount()) {
-                throw FatalError();
+                return nullptr;
+        } else if (nextToken()->is(TOK_EOF)) {
+                return nullptr;
         }
 
         GLL gll(*this, start);
+
+        // clear recorded diagnostics on scope exit
+        struct OnExit
+        {
+                OnExit(EmittedDiagnostics::Set &diags) : diagnostics_(diags) {}
+                ~OnExit() { diagnostics_.clear(); }
+
+                EmittedDiagnostics::Set &diagnostics_;
+        } on_exit(diagnostics_);
 
         SPPFNode::Ptr result = gll.parseMain(tokens_.begin().node());
 
@@ -1362,7 +1381,7 @@ try {
         }
 
         return result;
-} catch (const FatalError &) {
+} catch (const Diagnostic &) {  // fatal error
         return nullptr;
 }
 
@@ -1373,15 +1392,13 @@ Parser::onDiagnostic(
         const Diagnostic &d
 )
 {
-        DiagnosticCounter::onDiagnostic(d);
-        DiagnosticEmitter::emit(d);
+        emit(d);
 
         if (d.category() >= Diagnostic::ERROR) {
                 if (errorCount() == error_limit_) {
-                        onDiagnostic({ Diagnostic::FATAL_ERROR, d.offset(),
-                                       d.bytes(), d.line(), d.column(),
-                                       "error limit (%u) reached, aborting",
-                                       error_limit_ });
+                        emit(Diagnostic::FATAL_ERROR, d.offset(), 0, d.line(),
+                             d.column(), "error limit (%u) reached, aborting",
+                             error_limit_);
                 }
         }
 }
@@ -1394,6 +1411,22 @@ Parser::setErrorLimit(
 )
 {
         error_limit_ = limit;
+}
+
+//--------------------------------------
+
+WRPARSE_API void
+Parser::emit(
+        const Diagnostic &d
+)
+{
+        if (diagnostics_.insert({ d.id(), d.offset() }).second) {
+                DiagnosticEmitter::emit(d);
+                DiagnosticCounter::onDiagnostic(d);
+                if (d.category() >= Diagnostic::FATAL_ERROR) {
+                        throw d;
+                }
+        }
 }
 
 //--------------------------------------

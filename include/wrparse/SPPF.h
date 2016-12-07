@@ -456,6 +456,12 @@ public:
          */
         Token::Offset endOffset() const;
 
+        // \brief Obtain node's starting line number in source text
+        Line startLine() const;
+
+        // \brief Obtain node's starting column number in source text
+        Column startColumn() const;
+
         /// \brief Obtain number of bytes covered by input token range
         size_t size() const
                 { return !empty() ? endOffset() - startOffset() : 0; }
@@ -990,6 +996,27 @@ inline SubProductionConstWalker subProductions(const SPPFNode &under)
 
 
 } // namespace parse
+
+//--------------------------------------
+
+namespace fmt {
+
+
+struct Arg;
+struct Params;
+template <typename> struct TypeHandler;
+
+/**
+ * \brief support for wr::parse::SPPFNode arguments to wr::print() functions
+ */
+template <> struct WRPARSE_API TypeHandler<wr::parse::SPPFNode>
+{
+        static void set(Arg &arg, const wr::parse::SPPFNode &val);
+        static bool format(const Params &parms);
+};
+
+
+} // namespace fmt
 } // namespace wr
 
 

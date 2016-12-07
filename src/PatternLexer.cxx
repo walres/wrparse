@@ -699,9 +699,9 @@ PatternLexer::lex(
                         setLine(out_token.line());
                         setColumn(out_token.column());
                         char c = body_->readChar();
-                        emit({Diagnostic::ERROR, out_token.offset(),
-                              utf8_seq_size(c), out_token.line(),
-                              out_token.column(), "Illegal character '%c'", c});
+                        emit(Diagnostic::ERROR, out_token.offset(),
+                             utf8_seq_size(c), out_token.line(),
+                             out_token.column(), "Illegal character '%c'", c);
                 }
         } while (repeat);
 

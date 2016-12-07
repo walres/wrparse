@@ -27,6 +27,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <wrutil/CityHash.h>
+#include <wrutil/Format.h>
 #include <wrutil/numeric_cast.h>
 #include <wrutil/uiostream.h>
 
@@ -308,6 +309,22 @@ SPPFNode::endOffset() const
         }
 
         return offset;
+}
+
+//--------------------------------------
+
+WRPARSE_API Line
+SPPFNode::startLine() const
+{
+        return !empty() ? first_token_->line() : last_token_->line();
+}
+
+//--------------------------------------
+
+WRPARSE_API Column
+SPPFNode::startColumn() const
+{
+        return !empty() ? first_token_->column() : last_token_->column();
 }
 
 //--------------------------------------
@@ -978,4 +995,44 @@ template class SubProductionWalkerTemplate<const SPPFNode>;
 
 
 } // namespace parse
+
+//--------------------------------------
+
+namespace fmt {
+
+
+WRPARSE_API void
+fmt::TypeHandler<wr::parse::SPPFNode>::set(
+        Arg                       &arg,
+        const wr::parse::SPPFNode &val
+)
+{
+        arg.type = Arg::OTHER_T;
+        arg.other = &val;
+        arg.fmt_fn = &format;
+}
+
+//--------------------------------------
+
+WRPARSE_API bool
+fmt::TypeHandler<wr::parse::SPPFNode>::format(
+        const Params &parms
+)
+{
+        if (parms.conv != 's') {
+                errno = EINVAL;
+                return false;
+        }
+
+        std::string buf = static_cast<const parse::SPPFNode *>(parms.arg->other)
+                                ->content();
+        Arg arg2;
+        arg2.type = Arg::STR_T;
+        arg2.s = { buf.data(), buf.length() };
+
+        return parms.target.format(parms, &arg2);
+}
+
+
+} // namespace fmt
 } // namespace wr

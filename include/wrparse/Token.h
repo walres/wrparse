@@ -339,6 +339,25 @@ static_assert(alignof(Token) >= 4, "Token requires alignment of 4 or more");
 
 
 } // namespace parse
+
+//--------------------------------------
+
+namespace fmt {
+
+
+struct Arg;
+template <typename> struct TypeHandler;
+
+/**
+ * \brief support for wr::parse::Token arguments to wr::print() functions
+ */
+template <> struct WRPARSE_API TypeHandler<wr::parse::Token>
+{
+        static void set(Arg &arg, const wr::parse::Token &val);
+};
+
+
+} // namespace fmt
 } // namespace wr
 
 

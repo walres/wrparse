@@ -272,21 +272,19 @@ int main()
 
         wr::parse::NonTerminal calc_input = { "calc-input", {
                 { parser.arithmetic_expr },
-                { TOK_NEWLINE },
-                { TOK_EOF }
+                { TOK_NEWLINE }
         }};
 
         int status = EXIT_SUCCESS;
 
-        while (wr::uin.good() && !parser.nextToken()->is(TOK_EOF)) {
+        while (wr::uin.good()) {
                 wr::parse::SPPFNode::Ptr result = parser.parse(calc_input);
 
                 if (!result || parser.errorCount()) {
-                        if (!parser.errorCount()) {
-                                wr::uerr << "parse failed" << std::endl;
+                        if (!wr::uin.eof()) {
+                                status = EXIT_FAILURE;
+                                parser.reset();  // clear any remaining tokens
                         }
-                        status = EXIT_FAILURE;
-                        parser.reset();  // clear any remaining tokens
                 } else if (result->is(parser.arithmetic_expr)) {
                         auto expr = result->find(parser.arithmetic_expr);
                         wr::uout << CalcParser::Result::getFrom(*expr)->value

@@ -26,6 +26,7 @@
 #define WRPARSE_PARSER_H
 
 #include <iosfwd>
+#include <unordered_set>
 #include <boost/smart_ptr/intrusive_ptr.hpp>
 #include <boost/smart_ptr/intrusive_ref_counter.hpp>
 
@@ -53,8 +54,6 @@ public:
         // opaque internal types
         class GLL;
         class GSS;
-
-        struct FatalError {};
 
         enum { DEFAULT_ERROR_LIMIT = 20 };
 
@@ -97,13 +96,121 @@ public:
         bool removeDiagnosticHandler(DiagnosticHandler &handler)
                 { return DiagnosticEmitter::removeDiagnosticHandler(handler); }
 
+protected:
+        /// \brief Emit diagnostic message `d`
+        void emit(const Diagnostic &d);
+
+        /**
+         * \brief Emit diagnostic message
+         *
+         * \note The format string `fmt` is used as the diagnostic ID so it
+         * must be a compile-time constant string.
+         *
+         * \param category  diagnostic severity
+         * \param offset    offset within raw input text
+         * \param bytes     length covered within raw input text
+         * \param line      reported line number
+         * \param column    reported column number
+         * \param fmt       message format string, also used to uniquely
+         *                  identify the diagnostic
+         * \param args      zero or more arguments to be formatted into
+         *                  the resulting message
+         */
+        template <typename ...Args>
+        void emit(Diagnostic::Category category, Token::Offset offset,
+                  unsigned int bytes, Line line, Column column,
+                  const char *fmt, Args &&...args)
+                { emit({ category, fmt, offset, bytes, line, column, fmt,
+                         std::forward<Args>(args)... }); }
+
+        /**
+         * \brief Emit diagnostic message
+         *
+         * \note The format string `fmt` is used as the diagnostic ID so it
+         * must be a compile-time constant string.
+         *
+         * \param category  diagnostic severity
+         * \param token     identifies the input text range to which the
+         *                  diagnostic applies
+         * \param fmt       message format string, also used to uniquely
+         *                  identify the diagnostic
+         * \param args      zero or more arguments to be formatted into
+         *                  the resulting message
+         */
+        template <typename ...Args>
+        void emit(Diagnostic::Category category, const Token &token,
+                  const char *fmt, Args &&...args)
+                { emit({ category, fmt, token, fmt,
+                         std::forward<Args>(args)... }); }
+
+        /**
+         * \brief Emit diagnostic message
+         *
+         * \note The format string `fmt` is used as the diagnostic ID so it
+         * must be a compile-time constant string.
+         *
+         * \param category     diagnostic severity
+         * \param first_token  identifies the beginning of the input text
+         *                     range to which the diagnostic applies
+         * \param last_token   identifies the end of the input text range
+         *                     to which the diagnostic applies
+         * \param fmt          message format string, also used to uniquely
+         *                     identify the diagnostic
+         * \param args         zero or more arguments to be formatted into
+         *                     the resulting message
+         */
+        template <typename ...Args>
+        void emit(Diagnostic::Category category, const Token &first_token,
+                  const Token &last_token, const char *fmt, Args &&...args)
+                { emit({ category, fmt, first_token, last_token, fmt,
+                         std::forward<Args>(args)... }); }
+
+        /**
+         * \brief Emit diagnostic message
+         *
+         * \note The format string `fmt` is used as the diagnostic ID so it
+         * must be a compile-time constant string.
+         *
+         * \param category   diagnostic severity
+         * \param sppf_node  identifies the input text range to which the
+         *                   diagnostic applies
+         * \param fmt        message format string, also used to uniquely
+         *                   identify the diagnostic
+         * \param args       zero or more arguments to be formatted into
+         *                   the resulting message
+         */
+        template <typename ...Args>
+        void emit(Diagnostic::Category category, const SPPFNode &sppf_node,
+                  const char *fmt, Args &&...args)
+                { emit({ category, fmt, sppf_node.startOffset(),
+                         sppf_node.endOffset(), sppf_node.startLine(),
+                         sppf_node.startColumn(), fmt,
+                         std::forward<Args>(args)... }); }
+
 private:
         friend ParseState;
 
-        Lexer     *lexer_;
-        TokenList  tokens_;
-        bool       debug_;
-        size_t     error_limit_;
+        struct EmittedDiagnostics
+        {
+                using Key = std::pair<Diagnostic::ID, Token::Offset>;
+
+                struct Hash
+                {
+                        size_t operator()(const Key &k) const
+                        {
+                                return stdHash(&k, sizeof(k.first)
+                                                   + sizeof(k.second));
+                        }
+                };
+
+                using Set = std::unordered_set<Key, Hash>;
+        };
+
+        Lexer                   *lexer_;
+        TokenList                tokens_;
+        bool                     debug_;
+        size_t                   error_limit_;
+        EmittedDiagnostics::Set  diagnostics_;
 };
 
 //--------------------------------------
@@ -124,18 +231,32 @@ public:
         Token *input() const                   { return input_pos_; }
 
         /**
-         * \brief Emit diagnostic message for current input token position
+         * \brief Emit diagnostic message for specified node's range
+         * \param [in] category   message severity
+         * \param [in] sppf_node  node indicating source text range
+         * \param [in] fmt        format string
+         * \param [in] args  zero or more arguments to be formatted into message
+         */
+        template <typename ...Args>
+        void emit(Diagnostic::Category category, const SPPFNode &sppf_node,
+                  const char *fmt, Args &&...args)
+        {
+                parser_.emit(category, sppf_node, fmt,
+                             std::forward<Args>(args)...);
+        }
+
+        /**
+         * \brief Emit diagnostic message for parsed node's range
          * \param [in] category  message severity
          * \param [in] fmt       format string
          * \param [in] args  zero or more arguments to be formatted into message
          */
         template <typename ...Args>
-        void emit(Diagnostic::Category category, const char *fmt, Args ...args)
+        void emit(Diagnostic::Category category, const char *fmt,
+                  Args &&...args)
         {
-                parser_.emit({ category, input_pos_->offset(),
-                               input_pos_->bytes(), input_pos_->line(),
-                               input_pos_->column(), fmt,
-                               std::forward<Args>(args)... });
+                parser_.emit(category, *parsed_, fmt,
+                             std::forward<Args>(args)...);
         }
 
         /// \brief Emit diagnostic message `d`

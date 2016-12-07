@@ -47,13 +47,11 @@ namespace parse {
  * implement the `lex()` virtual method, which is responsible for the
  * entire lexing process, *i.e.* read the input stream and set the output
  * `Token`'s attributes as appropriate according to the input data. Lexing
- * may be implemented "by hand" or call upon externally-generated lexer
+ * may be implemented "by hand", call upon externally-generated lexer code
  * code such as that produced by [flex](https://github.com/westes/flex) or
- * [re2c](http://re2c.org). Whichever method of implementation is used,
- * from the wrParse library's point of view `Lexer::lex()` is a 'black box'
- * responsible for yielding the next input token on each call. `lex()` must
- * emit a token of type \c TOK_EOF upon reaching the end of the input
- * stream.
+ * [re2c](http://re2c.org) or subclass `wr::parse::PatternLexer` which
+ * provides a simple regular-expression-based lexer. `lex()` must emit a
+ * token of type \c TOK_EOF upon reaching the end of the input stream.
  *
  * ### Integrating Externally-Generated Lexers
  *      A generated lexer can be integrated by placing the necessary
@@ -90,6 +88,8 @@ namespace parse {
  *           line, column or input offset respectively by the delta value
  *           passed
  *      7. Set any token flags that could not be set in step 3 above
+ *
+ * ### Implementing Simple Lexers based on `PatternLexer`
  *
  * ### Implementing Handwritten Lexers
  *
@@ -130,10 +130,7 @@ public:
          * \param [in] line    starting line number
          * \param [in] column  starting column number
          *
-         * \note `Lexer` creates its own input stream object which shares
-         *      `input`'s stream buffer object. As a result, the lexer may
-         *      outlive `input` but the stream buffer as returned by
-         *      `input.rdbuf()` must outlive both `input` and the lexer.
+         * \note `input` must outlive the `Lexer` object.
          */
         Lexer(std::istream &input, Line line = 1, Column column = 0);
 
@@ -217,10 +214,7 @@ public:
          *
          * \return reference to `*this` object
          *
-         * \note `Lexer` creates its own input stream object which shares
-         *      `input`'s stream buffer object. As a result, the lexer may
-         *      outlive `input` but the stream buffer as returned by
-         *      `input.rdbuf()` must outlive both `input` and the lexer.
+         * \note `input` must outlive the `Lexer` object.
          */
         this_t &reset(std::istream &input, Line line = 1, Column column = 0);
 
@@ -241,7 +235,7 @@ public:
          * \return reference to `*this` object
          */
         this_t &reset(Line line = 1, Column column = 0)
-                { return reset(input_, line, column); }
+                { return reset(*input_, line, column); }
 
         this_t &operator=(const this_t &) = delete;
                 ///< \details Copying of `Lexer` objects is prohibited.
@@ -281,13 +275,9 @@ public:
 protected:
         /**
          * \brief Obtain input data source
-         * \return
-         *      reference to the input stream object. This object belongs
-         *      to `Lexer` and is not a copy of the original stream passed
-         *      to the constructor or to `reset()`. It shares the stream
-         *      buffer from the original stream.
+         * \return reference to the input stream object
          */
-        std::istream &input() { return input_; }
+        std::istream &input() { return *input_; }
 
         /**
          * \brief Method invoked upon construction or a call to `reset()`
@@ -333,26 +323,97 @@ protected:
                 ///< \brief Adjust current input offset by `delta`
         ///@}
 
-        /**
-         * \brief Emit diagnostic message
-         * \param [in] category  message severity
-         * \param [in] length    length in bytes of related input sequence
-         * \param [in] fmt       format string
-         * \param [in] args  zero or more arguments to be formatted into message
-         */
-        template <typename ...Args>
-        void emit(Diagnostic::Category category, unsigned int length,
-                  const char *fmt, Args ...args)
-        {
-                if (!base_t::empty()) {
-                        base_t::emit({ category, offset_, length, line_,
-                                       column_, fmt,
-                                       std::forward<Args>(args)... });
-                }
-        }
-
         /// \brief Emit diagnostic message `d`
         void emit(const Diagnostic &d) { base_t::emit(d); }
+
+        /**
+         * \brief Emit diagnostic message
+         *
+         * The lexer's current offset, line and column number are used as the
+         * reported starting location within the input text.
+         *
+         * \note The format string `fmt` is used as the diagnostic ID so it
+         * must be a compile-time constant string.
+         *
+         * \param category  diagnostic severity
+         * \param bytes     length covered within raw input text
+         * \param fmt       message format string, also used to uniquely
+         *                  identify the diagnostic
+         * \param args      zero or more arguments used to format the
+         *                  resulting message
+         */
+        template <typename ...Args>
+        void emit(Diagnostic::Category category, unsigned int bytes,
+                  const char *fmt, Args &&...args)
+        {
+                base_t::emit(category, offset_, bytes, line_, column_,
+                             fmt, std::forward<Args>(args)... );
+        }
+
+        /**
+         * \brief Emit diagnostic message
+         *
+         * \note The format string `fmt` is used as the diagnostic ID so it
+         * must be a compile-time constant string.
+         *
+         * \param category  diagnostic severity
+         * \param offset    offset within raw input text
+         * \param bytes     length covered within raw input text
+         * \param line      reported line number
+         * \param column    reported column number
+         * \param fmt       message format string, also used to uniquely
+         *                  identify the diagnostic
+         * \param args      zero or more arguments used to format the
+         *                  resulting message
+         */
+        template <typename ...Args>
+        void emit(Diagnostic::Category category, Token::Offset offset,
+                  unsigned int bytes, Line line, Column column,
+                  const char *fmt, Args &&...args)
+                { base_t::emit(category, offset, bytes, line, column,
+                               fmt, std::forward<Args>(args)...); }
+
+        /**
+         * \brief Emit diagnostic message
+         *
+         * \note The format string `fmt` is used as the diagnostic ID so it
+         * must be a compile-time constant string.
+         *
+         * \param category  diagnostic severity
+         * \param token     identifies the input text range to which the
+         *                  diagnostic applies
+         * \param fmt       message format string, also used to uniquely
+         *                  identify the diagnostic
+         * \param args      zero or more arguments used to format the
+         *                  resulting message
+         */
+        template <typename ...Args>
+        void emit(Diagnostic::Category category, const Token &token,
+                  const char *fmt, Args &&...args)
+                { base_t::emit(category, token, fmt,
+                               std::forward<Args>(args)...); }
+
+        /**
+         * \brief Emit diagnostic message
+         *
+         * \note The format string `fmt` is used as the diagnostic ID so it
+         * must be a compile-time constant string.
+         *
+         * \param category     diagnostic severity
+         * \param first_token  identifies the beginning of the input text
+         *                     range to which the diagnostic applies
+         * \param last_token   identifies the end of the input text range
+         *                     to which the diagnostic applies
+         * \param fmt          message format string, also used to uniquely
+         *                     identify the diagnostic
+         * \param args         zero or more arguments used to format the
+         *                     resulting message
+         */
+        template <typename ...Args>
+        void emit(Diagnostic::Category category, const Token &first_token,
+                  const Token &last_token, const char *fmt, Args &&...args)
+                { base_t::emit(category, first_token, last_token,
+                               fmt, std::forward<Args>(args)...); }
 
         /**
          * \name Functions for handwritten lexers
@@ -445,7 +506,7 @@ private:
         using StorageBufs = std::list<std::unique_ptr<char[]>>;
         using StorageBufsIter = StorageBufs::iterator;
 
-        std::istream    input_;
+        std::istream   *input_;
         Line            line_;
         Column          column_;
         std::streamoff  offset_;

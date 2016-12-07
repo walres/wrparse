@@ -39,7 +39,7 @@ WRPARSE_API
 Lexer::Lexer(
         nullptr_t
 ) :
-        input_           (nullptr),
+        input_           (&wr::uin),
         line_            (0),
         column_          (0),
         offset_          (0),
@@ -82,7 +82,7 @@ WRPARSE_API
 Lexer::Lexer(
         this_t &&other
 ) :
-        input_(nullptr)
+        input_(&wr::uin)
 {
         operator=(std::move(other));
 }
@@ -129,7 +129,7 @@ Lexer::reset(
 ) -> this_t &
 {
         onReset(input, line, column);
-        input_.rdbuf(input.rdbuf());
+        input_ = &input;
         line_ = line;
         column_ = column;
         offset_ = 0;
@@ -294,8 +294,8 @@ Lexer::operator=(
 {
         if (this != &other) {
                 *static_cast<base_t *>(this) = std::move(other);
-                input_.rdbuf(other.input_.rdbuf());
-                other.input_.rdbuf(nullptr);
+                input_ = other.input_;
+                other.input_ = &wr::uin;
                 line_ = other.line_;
                 other.line_ = 1;
                 column_ = other.column_;
@@ -451,7 +451,7 @@ Lexer::clearStorage()
 Lexer::History
 Lexer::doRead()
 {
-        char32_t   result = input_.get();
+        char32_t   result = input_->get();
         uint8_t    bytes, lines;
         int16_t    columns = 1;
         TokenFlags flags = next_token_flags_;
@@ -492,7 +492,7 @@ Lexer::doRead()
         }
 
         for (unsigned i = 1; i < bytes; ++i) {
-                auto c = input_.get();
+                auto c = input_->get();
                 if ((c & 0xc0) == 0x80) {
                         result = (result << 6) | (c & 0x3f);
                 } else if (c == std::istream::traits_type::eof()) {
