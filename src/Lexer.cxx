@@ -37,7 +37,7 @@ namespace parse {
 
 WRPARSE_API
 Lexer::Lexer(
-        nullptr_t
+        std::nullptr_t
 ) :
         input_           (&wr::uin),
         line_            (0),

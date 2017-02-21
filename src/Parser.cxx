@@ -953,7 +953,7 @@ Parser::GLL::pop(
         assert(gss_head);
         assert(parsed_node);
 
-        popped_.emplace(Popped { gss_head, parsed_node });
+        popped_.insert(Popped { gss_head, parsed_node });
 
         for (const GSS::Edge &gss_edge: gss_head->children()) {
                 GrammarAddress  return_address = gss_head->returnAddress();

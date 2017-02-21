@@ -482,8 +482,8 @@ protected:
         ///@}
 
 private:
-        Lexer(nullptr_t);  /* dummy delegate constructor to ensure vtable
-                              is set upon first call to onReset() */
+        Lexer(std::nullptr_t);  /* dummy delegate constructor to ensure vtable
+                                   is set upon first call to onReset() */
         enum : short
         {
                 HISTORY_SIZE = 16

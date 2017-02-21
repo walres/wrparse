@@ -157,6 +157,9 @@ public:
 
         Token &setOffset(std::streamoff offset)
                 { return setOffset(numeric_cast<Offset>(offset)); }
+
+        Token &setOffset(size_t offset)
+                { return setOffset(numeric_cast<Offset>(offset)); }
         ///@}
 
         /**
