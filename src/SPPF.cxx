@@ -24,6 +24,7 @@
  * \endparblock
  */
 #include <assert.h>
+#include <forward_list>
 #include <fstream>
 #include <stdexcept>
 #include <wrutil/CityHash.h>
@@ -883,6 +884,16 @@ NonTerminalWalkerTemplate<NodeT>::operator++(int) -> this_t
 
 //--------------------------------------
 
+template <typename NodeT> WRPARSE_API void
+NonTerminalWalkerTemplate<NodeT>::finish(
+        node_ptr_t node
+)
+{
+        finish_ = node;
+}
+
+//--------------------------------------
+
 template class NonTerminalWalkerTemplate<SPPFNode>;
 template class NonTerminalWalkerTemplate<const SPPFNode>;
 
@@ -903,95 +914,136 @@ countNonTerminals(
 
 //--------------------------------------
 
-template <typename NodeT> WRPARSE_API
-SubProductionWalkerTemplate<NodeT>::SubProductionWalkerTemplate(
-        const base_t &other
-) :
-        base_t(other)
+template <typename NodeT> WRPARSE_API auto
+SubProductionWalkerTemplate<NodeT>::operator++() -> this_t &
 {
-        bypassIdenticalChildren();
-}
-
-//--------------------------------------
-
-template <typename NodeT> WRPARSE_API
-SubProductionWalkerTemplate<NodeT>::SubProductionWalkerTemplate(
-        base_t &&other
-) :
-        base_t(std::move(other))
-{
-        bypassIdenticalChildren();
-}
-
-//--------------------------------------
-
-template <typename NodeT> WRPARSE_API
-SubProductionWalkerTemplate<NodeT>::SubProductionWalkerTemplate(
-        node_ptr_t start,
-        node_ptr_t finish
-) :
-        base_t(start, finish)
-{
-        bypassIdenticalChildren();
+        if (node() || !node()->is(*start())) {
+                base_t::operator++();
+                return *this;
+        } else {
+                return *this = end();
+        }
 }
 
 //--------------------------------------
 
 template <typename NodeT> WRPARSE_API auto
-SubProductionWalkerTemplate<NodeT>::operator=(
-        const base_t &other
-) -> this_t &
+SubProductionWalkerTemplate<NodeT>::operator++(int) -> this_t
 {
-        if (&other != this) {
-                base_t::operator=(other);
-                bypassIdenticalChildren();
-        }
-        return *this;
-}
-
-//--------------------------------------
-
-template <typename NodeT> WRPARSE_API auto
-SubProductionWalkerTemplate<NodeT>::operator=(
-        base_t &&other
-) -> this_t &
-{
-        if (&other != this) {
-                base_t::operator=(std::move(other));
-                bypassIdenticalChildren();
-        }
-        return *this;
-}
-
-//--------------------------------------
-
-template <typename NodeT> WRPARSE_API void
-SubProductionWalkerTemplate<NodeT>::reset(
-        node_ptr_t new_start
-)
-{
-        base_t::reset(new_start);
-        bypassIdenticalChildren();
-}
-
-//--------------------------------------
-
-template <typename NodeT> WRPARSE_API void
-SubProductionWalkerTemplate<NodeT>::bypassIdenticalChildren()
-{
-        if (*this && node()->is(*start())) {
-                auto pos = node();
-                for (base_t child(pos); child && child->is(*pos);
-                                        child.reset(pos = node())) {
-                        this->extend(std::move(child));
-                }
-        }
+        this_t orig(*this);
+        ++(*this);
+        return orig;
 }
 
 //--------------------------------------
 
 template class SubProductionWalkerTemplate<SPPFNode>;
 template class SubProductionWalkerTemplate<const SPPFNode>;
+
+//--------------------------------------
+
+template <typename NodeT> WRPARSE_API
+NonTerminalVisitorTemplate<NodeT>::~NonTerminalVisitorTemplate() = default;
+
+//--------------------------------------
+
+template <typename NodeT> WRPARSE_API bool
+NonTerminalVisitorTemplate<NodeT>::visit(
+        node_t &node
+)
+{
+        SPPFWalkerTemplate<node_t>    walker(&node);
+        std::forward_list<node_ptr_t> parents;
+        node_ptr_t                    prev = nullptr;
+        bool                          backtracking = false;
+
+        while (true) {
+                const NonTerminal *nonterminal = nullptr;
+
+                if (walker->isNonTerminal()) {
+                        nonterminal = walker->nonTerminal();
+
+                        if (nonterminal->isTransparent()) {
+                                nonterminal = nullptr;
+                        } else if (!backtracking) {
+                                node_ptr_t parent = nullptr;
+                                if (!parents.empty()) {
+                                        parent = parents.front();
+                                }
+                                parents.push_front(walker.node());
+
+                                switch (enter(walker, parent)) {
+                                case STOP: default:
+                                        return false;
+                                case SKIP:
+                                        prev = walker.node();
+                                        if (!walker.backtrack()) {
+                                                return true;
+                                        }
+                                        if (walker.node() == parent) {
+                                                parents.pop_front();
+                                        }
+                                        nonterminal = walker->nonTerminal();
+                                        backtracking = true;
+                                        break;
+                                case CONTINUE:
+                                        break;
+                                }
+                        }
+                }
+
+                node_ptr_t pos = walker.node();
+
+                if (!backtracking && walker.walkLeft(walker.node())) {
+                        prev = pos;
+                } else if (pos->hasChildren()
+                          && !pos->children().front()->isPacked()
+                          && (pos->children().begin() != pos->children().last())
+                          && (prev == pos->children().front())
+                          && walker.walkRight(walker.node())) {
+                        /* see NonTerminalWalkerTemplate::operator++() for an
+                           explanation of the above logic */
+                        prev = pos;
+                        backtracking = false;
+                } else {
+                        backtracking = true;
+                        node_ptr_t parent = nullptr;
+                        if (!parents.empty()) {
+                                parent = parents.front();
+                        }
+                        if (nonterminal && !exit(walker, parent)) {
+                                return false;
+                        }
+                        if (walker.backtrack()) {
+                                prev = pos;
+                                if (walker.node() == parent) {
+                                        parents.pop_front();
+                                }
+                                continue;
+                        } else {  // can't backtrack from original node
+                                return true;
+                        }
+                }
+        }
+}
+
+//--------------------------------------
+
+template <typename NodeT> auto
+NonTerminalVisitorTemplate<NodeT>::nextSibling(
+        const walker_t &walker,
+        node_ptr_t      parent
+) -> node_ptr_t // static
+{
+        NonTerminalWalkerTemplate<NodeT> walker2(walker);
+        walker2.finish(parent);
+        return ++walker2 ? walker2.node() : nullptr;
+}
+
+//--------------------------------------
+
+template class NonTerminalVisitorTemplate<SPPFNode>;
+template class NonTerminalVisitorTemplate<const SPPFNode>;
 
 
 } // namespace parse

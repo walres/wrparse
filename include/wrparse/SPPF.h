@@ -829,6 +829,8 @@ public:
 
         void reset() { reset(start()); }
 
+        void finish(node_ptr_t node);
+
         bool operator==(const this_t &other) const
                 { return node() == other.node(); }
 
@@ -915,27 +917,30 @@ public:
         using node_ptr_t = typename base_t::node_ptr_t;
 
         SubProductionWalkerTemplate() = default;
-
         SubProductionWalkerTemplate(const this_t &other) = default;
         SubProductionWalkerTemplate(this_t &&other) = default;
-        SubProductionWalkerTemplate(const base_t &other);
-        SubProductionWalkerTemplate(base_t &&other);
-        SubProductionWalkerTemplate(node_ptr_t start, node_ptr_t finish);
-        SubProductionWalkerTemplate(node_ptr_t start) : this_t(start, start) {}
+        SubProductionWalkerTemplate(const base_t &other) : base_t(other) {}
+        SubProductionWalkerTemplate(base_t &&other) :
+                base_t(std::move(other)) {}
+        SubProductionWalkerTemplate(node_ptr_t start, node_ptr_t finish) :
+                base_t(start, finish) {}
+        SubProductionWalkerTemplate(node_ptr_t start) :
+                this_t(start, start) {}
 
         this_t &operator=(const this_t &other) = default;
         this_t &operator=(this_t &&other) = default;
-        this_t &operator=(const base_t &other);
-        this_t &operator=(base_t &&other);
+        this_t &operator=(const base_t &other)
+                { base_t::operator=(other); return *this; }
+        this_t &operator=(base_t &&other)
+                { base_t::operator=(std::move(other)); return *this; }
 
         explicit operator bool() const { return base_t::operator bool(); }
 
         node_t &operator*() const     { return *node(); }
         node_ptr_t operator->() const { return node(); }
 
-        this_t &operator++()   { base_t::operator++(); return *this; }
-        this_t operator++(int) { return base_t::operator++(0); }
-                // NB: potentially expensive!
+        this_t &operator++();
+        this_t operator++(int);  // NB: potentially expensive!
 
         node_ptr_t node() const   { return base_t::node(); }
         node_ptr_t start() const  { return base_t::start(); }
@@ -943,7 +948,7 @@ public:
         this_t begin() const      { return *this; }
         this_t end() const        { return base_t::end(); }
 
-        void reset(node_ptr_t new_start);
+        void reset(node_ptr_t new_start) { base_t::reset(new_start); }
         void reset() { reset(start()); }
 
         bool operator==(const this_t &other) const
@@ -951,9 +956,6 @@ public:
 
         bool operator!=(const this_t &other) const
                 { return base_t::operator!=(other); }
-
-private:
-        void bypassIdenticalChildren();
 };
 
 // instantiated by library
@@ -993,6 +995,43 @@ inline SubProductionWalker subProductions(SPPFNode &under)
 inline SubProductionConstWalker subProductions(const SPPFNode &under)
         { return SubProductionConstWalker(&under); }
 ///@}
+
+//--------------------------------------
+
+template <typename NodeT>
+class WRPARSE_API NonTerminalVisitorTemplate
+{
+public:
+        using this_t     = NonTerminalVisitorTemplate;
+        using node_t     = NodeT;
+        using walker_t   = SPPFWalkerTemplate<node_t>;
+        using node_ref_t = node_t &;
+        using node_ptr_t = typename walker_t::node_ptr_t;
+
+        virtual ~NonTerminalVisitorTemplate();
+
+        virtual bool visit(node_ref_t node);
+
+        static node_ptr_t nextSibling(const walker_t &walker,
+                                      node_ptr_t parent);
+
+protected:
+        enum EntryAction { STOP, SKIP, CONTINUE };
+
+        virtual EntryAction enter(const walker_t &walker, node_ptr_t parent)
+                { (void) walker; (void) parent; return CONTINUE; }
+
+        virtual bool exit(const walker_t &walker, node_ptr_t parent)
+                { (void) walker; (void) parent; return true; }
+};
+
+// instantiated by library
+extern template class NonTerminalVisitorTemplate<SPPFNode>;
+extern template class NonTerminalVisitorTemplate<const SPPFNode>;
+
+using NonTerminalVisitor = NonTerminalVisitorTemplate<SPPFNode>;
+
+using NonTerminalConstVisitor = NonTerminalVisitorTemplate<const SPPFNode>;
 
 
 } // namespace parse
