@@ -100,7 +100,7 @@ DiagnosticCounter::reset()
 
 //--------------------------------------
 
-WRPARSE_API DiagnosticEmitter::~DiagnosticEmitter() = default;
+WRPARSE_API DiagnosticEmitter::~DiagnosticEmitter() noexcept = default;
 
 //--------------------------------------
 

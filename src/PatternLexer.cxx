@@ -418,7 +418,7 @@ PatternLexer::Rule::Rule(
                 } else {
                         std::string msg(128, '\0');
                         while (true) {
-                                size_t len;
+                                int len;
                                 len = pcre2_get_error_message(pcre_error_code,
                                         (PCRE2_UCHAR *) &msg[0], msg.size());
 
