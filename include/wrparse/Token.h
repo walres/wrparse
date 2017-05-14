@@ -26,6 +26,8 @@
 #define WRPARSE_TOKEN_H
 
 #include <wrutil/numeric_cast.h>
+#include <wrutil/optional.h>
+#include <wrutil/tagged_ptr.h>
 #include <wrutil/u8string_view.h>
 #include <wrparse/Config.h>
 
@@ -42,6 +44,7 @@ using Column = uint16_t;      ///< Column number data type
 
 
 class Parser;
+class TokenTests;
 
 
 /**
@@ -123,7 +126,7 @@ public:
          * offset/length, all flags clear, empty spelling, \c nullptr link to
          * next token)
          */
-        Token() : next_(nullptr) { reset(); }
+        Token();
 
         /**
          * \brief Reset default attributes
@@ -228,9 +231,9 @@ public:
         /**
          * \brief Set token's spelling
          * \param [in] spelling
-         *      the new spelling, encoded as ASCII or UTF-8; its memory
-         *      space must outlive the Token object as the caller retains
-         *      ownership of it
+         *      the new spelling, encoded as ASCII or UTF-8; if its length is
+         *      greater than one character then its memory space must outlive
+         *      the Token object as the caller retains ownership of the data
          * \return reference to `*this` object
          */
         Token &setSpelling(const u8string_view &spelling);
@@ -272,8 +275,8 @@ public:
          *      read from the input source
          * \see `Parser::nextToken()`
          */
-        const Token *next() const { return next_; }
-        Token *next()             { return next_; }
+        const Token *next() const { return next_.ptr(); }
+        Token *next()             { return next_.ptr(); }
 
         /**
          * \brief Set next token of input sequence
@@ -281,14 +284,13 @@ public:
          * \note This function is not expected to be used by typical
          *      applications.
          */
-        void next(Token *new_next) { next_ = new_next; }
+        void next(Token *new_next) { next_.ptr(new_next); }
 
         /**
          * \brief Retrieve token's spelling
          * \return UTF-8 encoded spelling
          */
-        u8string_view spelling() const
-                { return u8string_view(spelling_, bytes_); }
+        u8string_view spelling() const;
 
         ///@{
         /**
@@ -328,14 +330,23 @@ public:
         explicit operator bool() const { return kind_ != TOK_NULL; }
 
 private:
-        Token      *next_;
-        const char *spelling_;
-        uint16_t    bytes_;
-        TokenFlags  flags_;
-        Offset      offset_;
-        TokenKind   kind_;
-        Line        line_;
-        Column      column_;
+        friend TokenTests;  // unit testing support
+
+        tagged_ptr<Token, 2>  next_;  // if tag != 0 then spelling is external
+
+        union
+        {
+                const char   *addr_;  // external spelling
+                char          buf_[UTF8_SEQ_MAX];
+                                        // internal single-character spelling
+        } spelling_;
+
+        uint16_t              bytes_;
+        TokenFlags            flags_;
+        Offset                offset_;
+        TokenKind             kind_;
+        Line                  line_;
+        Column                column_;
 };
 
 static_assert(alignof(Token) >= 4, "Token requires alignment of 4 or more");

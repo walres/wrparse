@@ -70,7 +70,7 @@ public:
                 { R"(\R)",  // any Unicode newline sequence
                         [this](wr::parse::Token &t) {
                                 t.setKind(TOK_NEWLINE)
-                                 .setSpelling(storeMatched());
+                                 .setSpelling(storeMatchedIfMultiChar());
                         }},                        
                 { R"([\t\f\x0b\p{Zs}]+)" },
                         /* ignore non-newline whitespace
@@ -83,7 +83,7 @@ public:
                     "0x[[:xdigit:]]+" },              // hexadecimal integer
                         [this](wr::parse::Token &t) {
                                 t.setKind(TOK_NUMBER)
-                                 .setSpelling(storeMatched());
+                                 .setSpelling(storeMatchedIfMultiChar());
                         }}
         })
         {

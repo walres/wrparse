@@ -470,7 +470,7 @@ protected:
         char *store(const void *data, size_t size);
 
         /**
-         * \brief Allocate and return copy of spelling `s`
+         * \brief Allocate and return copy of `s`
          *
          * The memory is freed either by a future call to `clearStorage()`
          * or upon expiry of the `Lexer` object, whichever happens first.
@@ -479,6 +479,19 @@ protected:
          * \return copy of `s` stored by the lexer or `s` if `s` is empty
          */
         u8string_view store(u8string_view s);
+
+        /**
+         * \brief Allocate and return copy of `s` if longer than one code point
+         *
+         * The memory is freed either by a future call to `clearStorage()`
+         * or upon expiry of the `Lexer` object, whichever happens first.
+         *
+         * \param [in] s  spelling to be copied
+         * \return copy of `s` stored by the lexer if `s` is longer than one
+         *      code point
+         * \return `s` if `s` is empty or contains a single code point
+         */
+        u8string_view storeIfMultiChar(u8string_view s);
         ///@}
 
 private:

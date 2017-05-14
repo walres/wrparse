@@ -127,6 +127,9 @@ public:
 protected:
         wr::u8string_view storeMatched() { return store(matched()); }
 
+        wr::u8string_view storeMatchedIfMultiChar()
+                { return storeIfMultiChar(matched()); }
+
 private:
         Body *body_;
 };

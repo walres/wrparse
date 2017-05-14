@@ -438,6 +438,20 @@ Lexer::store(
 
 //--------------------------------------
 
+WRPARSE_API u8string_view
+Lexer::storeIfMultiChar(
+        u8string_view s
+)
+{
+        if (s.has_max_size(1)) {
+                return s;
+        } else {
+                return store(s);
+        }
+}
+
+//--------------------------------------
+
 WRPARSE_API Lexer &
 Lexer::clearStorage()
 {

@@ -177,6 +177,21 @@ set_target_properties(calc
 
 ########################################
 #
+# Unit Tests
+#
+add_executable(TokenTests test/TokenTests.cxx)
+
+set(TESTS TokenTests)
+
+set_target_properties(${TESTS} PROPERTIES RUNTIME_OUTPUT_DIRECTORY test)
+
+foreach(TEST ${TESTS})
+        add_test(${TEST} test/${TEST})
+        target_link_libraries(${TEST} wrparse wrutil wrdebug)
+endforeach(TEST)
+
+########################################
+#
 # Output Directories
 #
 set_target_properties(wrparse wrparse_static
